@@ -23,6 +23,9 @@
       },
       "predictiveBackGestureEnabled": false
     },
+    "androidNavigationBar": {
+      "visible": "immersive"
+    },
     "web": {
       "favicon": "./assets/favicon.png"
     }
