@@ -3,7 +3,7 @@ import { SectionData } from '../types';
 export const governmentAndLawSection: SectionData = {
   id: 5,
   title: 'Government & Law',
-  emoji: '⚖️',
+  icon: '⚖️',
   color: '#CE82FF',
   concepts: [
     {
@@ -14,22 +14,22 @@ export const governmentAndLawSection: SectionData = {
       questions: [
         {
           id: 501,
-          question: 'What type of monarchy is the UK?',
-          options: ['Absolute monarchy', 'Constitutional monarchy', 'Elected monarchy', 'Military monarchy'],
+          question: 'Question 1',
+          options: ['W', 'C', 'W', 'W'],
           correctIndex: 1,
           explanation: 'The UK is a constitutional monarchy.',
         },
         {
           id: 502,
-          question: 'Who is the head of state?',
-          options: ['The Prime Minister', 'The King', 'The Speaker', 'The Mayor'],
+          question: 'Question 2',
+          options: ['W', 'C', 'W', 'W'],
           correctIndex: 1,
           explanation: 'The King is the head of state in the UK.',
         },
         {
           id: 503,
-          question: 'Where does real political power lie in the UK?',
-          options: ['The monarchy', 'Parliament', 'The army', 'The church'],
+          question: 'Question 3',
+          options: ['W', 'C', 'W', 'W'],
           correctIndex: 1,
           explanation: 'Real political power lies with Parliament, not the monarchy.',
         },
@@ -43,22 +43,22 @@ export const governmentAndLawSection: SectionData = {
       questions: [
         {
           id: 504,
-          question: 'Who is the head of government in the UK?',
-          options: ['The King', 'The Prime Minister', 'The Speaker', 'The President'],
+          question: 'Question 4',
+          options: ['W', 'C', 'W', 'W'],
           correctIndex: 1,
           explanation: 'The Prime Minister is the head of government.',
         },
         {
           id: 505,
-          question: 'Where does the Prime Minister live?',
-          options: ['Buckingham Palace', '10 Downing Street', 'Windsor Castle', 'The Tower of London'],
+          question: 'Question 5',
+          options: ['W', 'C', 'W', 'W'],
           correctIndex: 1,
           explanation: 'The Prime Minister\'s official residence is 10 Downing Street.',
         },
         {
           id: 506,
-          question: 'How does someone become Prime Minister?',
-          options: ['Appointed by the King alone', 'Leads the party with most seats in Commons', 'Elected directly by the public', 'Chosen by the House of Lords'],
+          question: 'Question 6',
+          options: ['W', 'C', 'W', 'W'],
           correctIndex: 1,
           explanation: 'The PM leads the political party with the most seats in the House of Commons.',
         },
@@ -72,22 +72,22 @@ export const governmentAndLawSection: SectionData = {
       questions: [
         {
           id: 507,
-          question: 'How many chambers does Parliament have?',
-          options: ['1', '2', '3', '4'],
+          question: 'Question 7',
+          options: ['W', 'C', 'W', 'W'],
           correctIndex: 1,
           explanation: 'Parliament has two chambers: the Commons and the Lords.',
         },
         {
           id: 508,
-          question: 'Are members of the House of Lords elected?',
-          options: ['Yes', 'No'],
+          question: 'Question 8',
+          options: ['W', 'C'],
           correctIndex: 1,
           explanation: 'Members of the House of Lords are appointed, not elected.',
         },
         {
           id: 509,
-          question: 'What do both Houses do?',
-          options: ['Debate and vote on laws', 'Run schools', 'Command the army', 'Collect taxes'],
+          question: 'Question 9',
+          options: ['C', 'W', 'W', 'W'],
           correctIndex: 0,
           explanation: 'Both chambers debate and vote on laws.',
         },

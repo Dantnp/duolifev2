@@ -23,7 +23,7 @@ export interface Concept {
 export interface SectionData {
   id: number;
   title: string;
-  emoji: string;
+  icon: string;
   color: string;
   concepts: Concept[];
 }

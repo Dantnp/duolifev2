@@ -1,41 +1,73 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { mockExams } from '../data/mockExams';
 import { csvMockExams } from '../data/csvMockExams';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_CTA, COLORS, CTA } from '../context/ThemeContext';
 import { getExamScore, getExamStats } from '../store/progress';
 
-const PASS_MARK = 18;
-const TOTAL = 24;
+const PASS_MARK = 2;
 
-const realExams = mockExams;       // "Real Test Simulation"
-const trainingExams = csvMockExams; // "Training Exams"
+const realExams = mockExams.map(e => ({ ...e, questions: e.questions.slice(0, 3) }));
+const trainingExams = csvMockExams.map(e => ({ ...e, questions: e.questions.slice(0, 3) }));
 const allExams = [...realExams, ...trainingExams];
 
 type Props = {
   navigation: any;
 };
 
+function usePressScale() {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 50, bounciness: 4 }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50, bounciness: 4 }).start();
+  return { scale, onPressIn, onPressOut };
+}
+
 export default function PracticeScreen({ navigation }: Props) {
   const { colors } = useTheme();
   const [, forceUpdate] = useState(0);
 
-  // Re-read scores every time the screen is focused
-  useFocusEffect(useCallback(() => { forceUpdate(n => n + 1); }, []));
+  const heroBarAnim = useRef(new Animated.Value(0)).current;
+  const ctaBounce = useRef(new Animated.Value(0)).current;
+  const ctaPress = usePressScale();
+
+  useFocusEffect(useCallback(() => {
+    forceUpdate(n => n + 1);
+
+    const pct = allExams.length > 0 ? getExamStats().completed / allExams.length : 0;
+    heroBarAnim.setValue(0);
+    const barAnim = Animated.timing(heroBarAnim, {
+      toValue: pct,
+      duration: 900,
+      useNativeDriver: false,
+    });
+    barAnim.start();
+
+    ctaBounce.setValue(-6);
+    const bounceAnim = Animated.spring(ctaBounce, { toValue: 0, useNativeDriver: true, speed: 14, bounciness: 10 });
+    bounceAnim.start();
+
+    return () => {
+      barAnim.stop();
+      bounceAnim.stop();
+    };
+  }, []));
 
   const stats = getExamStats();
+  const completionPct = allExams.length > 0 ? Math.round((stats.completed / allExams.length) * 100) : 0;
 
-  // Find "continue" exam: most recently attempted that wasn't passed, or next unattempted
+  // Find "continue" exam
   const continueExam = (() => {
-    // First: most recent attempt that wasn't passed
     let lastFailed: { exam: typeof allExams[0]; score: ReturnType<typeof getExamScore> } | null = null;
     for (const exam of allExams) {
       const s = getExamScore(exam.id);
@@ -46,8 +78,6 @@ export default function PracticeScreen({ navigation }: Props) {
       }
     }
     if (lastFailed) return lastFailed;
-
-    // Second: first unattempted exam
     for (const exam of allExams) {
       if (!getExamScore(exam.id)) return { exam, score: null };
     }
@@ -62,224 +92,202 @@ export default function PracticeScreen({ navigation }: Props) {
     return exam.title;
   }
 
-  function getStatusInfo(examId: number) {
+  function getStatusChip(examId: number) {
     const s = getExamScore(examId);
-    if (!s) return { status: 'new' as const, label: 'Not started', color: '#999' };
-    if (s.best >= PASS_MARK) return { status: 'passed' as const, label: 'Passed', color: '#16a34a' };
-    return { status: 'retry' as const, label: 'Retry recommended', color: '#f59e0b' };
+    const isRecommended = continueExam?.exam.id === examId;
+    if (!s) {
+      if (isRecommended) return { label: 'Current', bg: COLORS.orangeLight, color: COLORS.orangeDark };
+      return { label: 'Not started', bg: colors.chipBg, color: colors.mutedText };
+    }
+    if (s.best >= PASS_MARK) return { label: 'Passed', bg: COLORS.greenLight, color: COLORS.greenDark };
+    if (s.last < PASS_MARK && s.attempts > 0) return { label: 'Retry', bg: COLORS.redLight, color: COLORS.redDark };
+    return { label: 'In progress', bg: COLORS.blueLight, color: COLORS.blue };
   }
 
   function renderExamCard(exam: typeof allExams[0], type: 'real' | 'training') {
     const score = getExamScore(exam.id);
-    const statusInfo = getStatusInfo(exam.id);
+    const chip = getStatusChip(exam.id);
     const isReal = type === 'real';
-    const accentColor = isReal ? '#f59e0b' : '#1a56db';
-    const accentBg = isReal ? '#fffbeb' : '#eff6ff';
     const label = getSequentialLabel(exam);
 
     return (
       <TouchableOpacity
         key={exam.id}
-        style={[
-          styles.examCard,
-          {
-            backgroundColor: colors.card,
-            borderColor: colors.borderCard,
-            borderBottomColor: colors.border,
-            borderLeftColor: accentColor,
-            borderLeftWidth: 4,
-          },
-        ]}
+        style={[styles.examCard, { backgroundColor: colors.card }, SHADOW_CARD_SM]}
         onPress={() => navigation.navigate('MockExam', { examId: exam.id })}
-        activeOpacity={0.75}
+        activeOpacity={0.85}
       >
         <View style={styles.examCardTop}>
-          <View style={[styles.examIcon, { backgroundColor: accentBg }]}>
-            <Text style={styles.examIconText}>{isReal ? '\uD83C\uDFAF' : '\uD83D\uDCD8'}</Text>
+          <View style={[styles.examIcon, { backgroundColor: isReal ? COLORS.orangeLight : COLORS.blueLight }]}>
+            <Ionicons name={isReal ? 'document-text-outline' : 'book-outline'} size={18} color={isReal ? COLORS.orange : COLORS.blue} />
           </View>
           <View style={styles.examCardBody}>
             <Text style={[styles.examTitle, { color: colors.text }]}>{label}</Text>
-            <Text style={[styles.examDesc, { color: colors.mutedText }]}>{exam.description}</Text>
+            {score ? (
+              <Text style={[styles.examMeta, { color: colors.subtext }]}>
+                Best: {score.best}/{score.total} · {score.attempts} {score.attempts === 1 ? 'attempt' : 'attempts'}
+              </Text>
+            ) : (
+              <Text style={[styles.examMeta, { color: colors.mutedText }]}>
+                {exam.questions.length} Q · Pass 75% · ~15 min
+              </Text>
+            )}
           </View>
-          {statusInfo.status === 'passed' && (
-            <View style={styles.passedBadge}>
-              <Text style={styles.passedBadgeText}>{'\u2713'}</Text>
-            </View>
-          )}
-          {statusInfo.status === 'new' && (
-            <View style={[styles.statusDot, { backgroundColor: '#e0e0e0' }]} />
-          )}
-        </View>
-
-        {/* Meta row */}
-        <View style={styles.examMetaRow}>
-          <View style={styles.examMetaChip}>
-            <Text style={[styles.examMetaText, { color: colors.subtext }]}>
-              {exam.questions.length} Q
-            </Text>
-          </View>
-          <View style={styles.examMetaChip}>
-            <Text style={[styles.examMetaText, { color: colors.subtext }]}>
-              ~45 min
-            </Text>
-          </View>
-          <View style={styles.examMetaChip}>
-            <Text style={[styles.examMetaText, { color: colors.subtext }]}>
-              Pass: 75%
-            </Text>
+          <View style={[styles.statusChip, { backgroundColor: chip.bg }]}>
+            <Text style={[styles.statusChipText, { color: chip.color }]}>{chip.label}</Text>
           </View>
         </View>
-
-        {/* Score row — only if attempted */}
-        {score && (
-          <View style={[styles.scoreRow, { backgroundColor: colors.chipBg }]}>
-            <View style={styles.scoreItem}>
-              <Text style={[styles.scoreLabel, { color: colors.subtext }]}>Best</Text>
-              <Text style={[styles.scoreValue, { color: score.best >= PASS_MARK ? '#16a34a' : colors.text }]}>
-                {score.best}/{score.total} {score.best >= PASS_MARK ? '\uD83C\uDFC6' : ''}
-              </Text>
-            </View>
-            <View style={[styles.scoreDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.scoreItem}>
-              <Text style={[styles.scoreLabel, { color: colors.subtext }]}>Last</Text>
-              <Text style={[styles.scoreValue, { color: colors.text }]}>
-                {score.last}/{score.total}
-              </Text>
-            </View>
-            <View style={[styles.scoreDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.scoreItem}>
-              <Text style={[styles.scoreLabel, { color: colors.subtext }]}>Tries</Text>
-              <Text style={[styles.scoreValue, { color: colors.text }]}>
-                {score.attempts}
-              </Text>
-            </View>
-          </View>
-        )}
       </TouchableOpacity>
     );
   }
 
+  const heroTitle = completionPct === 0
+    ? 'Ready to test yourself'
+    : completionPct === 100
+      ? 'All simulations complete!'
+      : `${completionPct}% exam ready`;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Practice</Text>
-        <Text style={[styles.headerSubtitle, { color: colors.subtext }]}>
-          Prepare for your Life in the UK test
-        </Text>
-      </View>
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ═══════ 1. HERO — Blue gradient (same as Home) ═══════ */}
+        <LinearGradient
+          colors={['#1A44A8', '#2556C8', '#3068D8']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.heroBlock, SHADOW_CARD]}
+        >
+          <Text style={styles.heroLabel}>Practice mode</Text>
+          <Text style={styles.heroHeadline}>{heroTitle}</Text>
+          <Text style={styles.heroSubline}>
+            {stats.completed}/{allExams.length} simulations · {stats.totalAttempts} attempts
+          </Text>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* ===== PROGRESS HEADER ===== */}
-        <View style={[styles.progressCard, { backgroundColor: colors.card }]}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressTarget}>{'\uD83C\uDFAF'}</Text>
-            <Text style={[styles.progressTitle, { color: colors.text }]}>Your Progress</Text>
+          <View style={styles.heroBarTrack}>
+            <Animated.View style={[styles.heroBarFill, {
+              width: heroBarAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '100%'],
+              }),
+            }]} />
           </View>
-          <View style={styles.progressStats}>
-            <View style={styles.progressStat}>
-              <Text style={[styles.progressStatNum, { color: '#1a56db' }]}>
-                {stats.completed}
-              </Text>
-              <Text style={[styles.progressStatLabel, { color: colors.subtext }]}>
-                / {allExams.length} exams
-              </Text>
-            </View>
-            <View style={[styles.progressDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.progressStat}>
-              <Text style={[styles.progressStatNum, { color: '#1a56db' }]}>
-                {stats.completed > 0 ? `${stats.avgScore.toFixed(1)}` : '—'}
-              </Text>
-              <Text style={[styles.progressStatLabel, { color: colors.subtext }]}>
-                / {Math.round(stats.avgTotal)} avg score
-              </Text>
-            </View>
-            <View style={[styles.progressDivider, { backgroundColor: colors.border }]} />
-            <View style={styles.progressStat}>
-              <Text style={[styles.progressStatNum, { color: '#1a56db' }]}>
-                {stats.totalAttempts}
-              </Text>
-              <Text style={[styles.progressStatLabel, { color: colors.subtext }]}>
-                attempts
-              </Text>
-            </View>
-          </View>
-          {/* Progress bar */}
-          <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-            <View
-              style={[
-                styles.progressBarFill,
-                { width: `${allExams.length > 0 ? Math.round((stats.completed / allExams.length) * 100) : 0}%` },
-              ]}
-            />
-          </View>
-        </View>
 
-        {/* ===== CONTINUE CARD ===== */}
+          <View style={styles.heroMeta}>
+            <View style={styles.heroStatRow}>
+              <Text style={styles.heroStatLabel}>Best</Text>
+              <Text style={styles.heroStatValue}>
+                {stats.completed > 0 ? `${stats.bestScore}/${Math.round(stats.avgTotal)}` : '—'}
+              </Text>
+            </View>
+            <View style={styles.heroStatRow}>
+              <Text style={styles.heroStatLabel}>Average</Text>
+              <Text style={styles.heroStatValue}>
+                {stats.completed > 0 ? `${stats.avgPct}%` : '—'}
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* ═══════ 2. CONTINUE CTA — Same as Home ═══════ */}
         {continueExam && (
-          <TouchableOpacity
-            style={[styles.continueCard, { backgroundColor: colors.card }]}
-            onPress={() => navigation.navigate('MockExam', { examId: continueExam.exam.id })}
-            activeOpacity={0.75}
-          >
-            <View style={styles.continueHeader}>
-              <Text style={styles.continueIcon}>{'\uD83D\uDC49'}</Text>
-              <Text style={[styles.continueLabel, { color: '#e07800' }]}>
-                {continueExam.score ? 'Continue where you left off' : 'Recommended next'}
+          <Animated.View style={{ transform: [{ scale: ctaPress.scale }, { translateY: ctaBounce }] }}>
+            <TouchableOpacity
+              style={[styles.ctaCard, { backgroundColor: colors.card }, SHADOW_CARD]}
+              onPress={() => navigation.navigate('MockExam', { examId: continueExam.exam.id })}
+              onPressIn={ctaPress.onPressIn}
+              onPressOut={ctaPress.onPressOut}
+              activeOpacity={0.9}
+            >
+              <Text style={[styles.ctaLabel, { color: colors.subtext }]}>
+                {continueExam.score ? 'CONTINUE YOUR PRACTICE' : 'CONTINUE YOUR PRACTICE'}
               </Text>
-            </View>
-            <Text style={[styles.continueTitle, { color: colors.text }]}>
-              {getSequentialLabel(continueExam.exam)}
-            </Text>
-            {continueExam.score && (
-              <Text style={[styles.continueScore, { color: colors.subtext }]}>
-                Last score: {continueExam.score.last}/{continueExam.score.total}
-                {continueExam.score.last < PASS_MARK ? ' · retry recommended' : ''}
+              <Text style={[styles.ctaTitle, { color: colors.text }]}>
+                {getSequentialLabel(continueExam.exam)}
               </Text>
-            )}
-            <View style={styles.continueBtn}>
-              <Text style={styles.continueBtnText}>
-                {continueExam.score ? 'RETAKE' : 'START'}
-              </Text>
-            </View>
-          </TouchableOpacity>
+
+              {continueExam.score && (
+                <Text style={[styles.ctaContext, { color: colors.subtext }]}>
+                  Last score: {continueExam.score.last}/{continueExam.score.total}
+                  {continueExam.score.last < PASS_MARK ? ' · retry recommended' : ''}
+                </Text>
+              )}
+
+              <View style={styles.ctaChips}>
+                <View style={[styles.chip, { backgroundColor: COLORS.goldLight }]}>
+                  <Ionicons name="star" size={11} color={COLORS.gold} style={{ marginRight: 3 }} />
+                  <Text style={[styles.chipText, { color: COLORS.gold }]}>+300 XP</Text>
+                </View>
+                <View style={[styles.chip, { backgroundColor: colors.chipBg }]}>
+                  <Ionicons name="time-outline" size={11} color={colors.bodyText} style={{ marginRight: 3 }} />
+                  <Text style={[styles.chipText, { color: colors.bodyText }]}>~15 min</Text>
+                </View>
+              </View>
+
+              <View style={[styles.ctaButton, SHADOW_CTA]}>
+                <Text style={styles.ctaButtonText}>
+                  {continueExam.score ? 'Retake Simulation' : 'Start Simulation'}
+                </Text>
+                <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
         )}
 
-        {/* ===== REAL TEST SIMULATION SECTION ===== */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionIcon}>{'\uD83C\uDFAF'}</Text>
-          <View>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Real Test Simulation</Text>
-            <Text style={[styles.sectionSubtitle, { color: colors.subtext }]}>
-              Exam conditions · timed · scored
+        {/* ═══════ 3. MOTIVATION ROW — Same style as Home streak ═══════ */}
+        <LinearGradient
+          colors={['#EBF0FF', '#DDE6FF', '#D0DBFF']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[styles.motivationRow, SHADOW_CARD_SM]}
+        >
+          <View style={styles.motivationIconWrap}>
+            <Ionicons name="trophy" size={16} color={COLORS.blue} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.motivationTitle}>
+              {stats.completed > 0
+                ? `${stats.completed} simulation${stats.completed > 1 ? 's' : ''} completed`
+                : 'Start your first simulation'}
+            </Text>
+            <Text style={styles.motivationSub}>
+              {stats.completed > 0
+                ? 'Keep going — consistency improves your score'
+                : "You're likely ready after 5–6 attempts"}
             </Text>
           </View>
-        </View>
+          <View style={styles.motivationBadge}>
+            <Ionicons name="trending-up" size={13} color={COLORS.blue} />
+          </View>
+        </LinearGradient>
+
+        {/* ═══════ 4. REAL TEST SIMULATION ═══════ */}
+        <Text style={[styles.sectionHeading, { color: colors.text }]}>Real Test Simulation</Text>
+        <Text style={[styles.sectionSub, { color: colors.subtext }]}>Full exam conditions · timed · scored</Text>
         {realExams.map(exam => renderExamCard(exam, 'real'))}
 
-        {/* ===== TRAINING EXAMS SECTION ===== */}
-        <View style={[styles.sectionHeader, { marginTop: 8 }]}>
-          <Text style={styles.sectionIcon}>{'\uD83E\uDDEA'}</Text>
-          <View>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Training Exams</Text>
-            <Text style={[styles.sectionSubtitle, { color: colors.subtext }]}>
-              Practice at your own pace · {trainingExams.length} tests available
-            </Text>
-          </View>
-        </View>
+        {/* ═══════ 5. TRAINING EXAMS ═══════ */}
+        <Text style={[styles.sectionHeading, { color: colors.text }]}>Training Exams</Text>
+        <Text style={[styles.sectionSub, { color: colors.subtext }]}>Practice specific topics at your own pace</Text>
         {trainingExams.map(exam => renderExamCard(exam, 'training'))}
 
-        {/* ===== TIP BOX ===== */}
-        <View style={[styles.tipBox, { backgroundColor: colors.cardAlt, borderColor: '#bfdbfe' }]}>
-          <Text style={[styles.tipTitle, { color: colors.accentText }]}>
-            {'\uD83D\uDCA1'} Exam tip
-          </Text>
-          <Text style={[styles.tipText, { color: colors.bodyText }]}>
-            Read each question carefully. Some are True/False, some ask you to select TWO answers.
-            Look for the question type badge. Aim for 75% (18/24) to pass.
-          </Text>
+        {/* ═══════ 6. TIP — Matches Home style ═══════ */}
+        <View style={[styles.tipCard, { backgroundColor: colors.card }, SHADOW_CARD_SM]}>
+          <View style={styles.tipRow}>
+            <View style={[styles.tipIconWrap, { backgroundColor: COLORS.blueLight }]}>
+              <Ionicons name="bulb" size={14} color={COLORS.blue} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.tipTitle, { color: colors.text }]}>Exam tip</Text>
+              <Text style={[styles.tipText, { color: colors.subtext }]}>
+                Read each question carefully. Some are True/False, some ask you to select TWO answers. Aim for 75% to pass.
+              </Text>
+            </View>
+          </View>
         </View>
-
-        <View style={{ height: 24 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -287,166 +295,117 @@ export default function PracticeScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+  scrollContent: { flex: 1 },
+  scrollContainer: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 24, gap: 10 },
+
+  // ═══════ HERO (gradient — same as Home) ═══════
+  heroBlock: {
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  heroLabel: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.6)', marginBottom: 1 },
+  heroHeadline: { fontSize: 18, fontWeight: '900', color: '#fff', marginBottom: 2 },
+  heroSubline: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.5)', marginBottom: 8 },
+  heroBarTrack: { height: 5, borderRadius: 3, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.18)', marginBottom: 8 },
+  heroBarFill: { height: 5, borderRadius: 3, backgroundColor: '#fff' },
+  heroMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  heroStatRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  heroStatLabel: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.5)' },
+  heroStatValue: { fontSize: 11, fontWeight: '700', color: '#fff' },
+
+  // ═══════ CTA CARD (same as Home) ═══════
+  ctaCard: {
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingTop: 12,
     paddingBottom: 14,
-    borderBottomWidth: 1,
   },
-  headerTitle: { fontSize: 26, fontWeight: '900' },
-  headerSubtitle: { fontSize: 13, marginTop: 2, fontWeight: '600' },
-  scroll: { padding: 16, paddingBottom: 40 },
-
-  // ===== PROGRESS CARD =====
-  progressCard: {
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  progressHeader: {
+  ctaLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 3 },
+  ctaTitle: { fontSize: 19, fontWeight: '900', marginBottom: 4 },
+  ctaContext: { fontSize: 12, fontWeight: '500', marginBottom: 4 },
+  ctaChips: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  chip: { flexDirection: 'row', alignItems: 'center', borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 },
+  chipText: { fontSize: 11, fontWeight: '700' },
+  ctaButton: {
+    backgroundColor: COLORS.orange,
+    borderRadius: CTA.borderRadius,
+    height: CTA.height - 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 14,
-  },
-  progressTarget: { fontSize: 20 },
-  progressTitle: { fontSize: 16, fontWeight: '900' },
-  progressStats: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  progressStat: { flex: 1, alignItems: 'center' },
-  progressStatNum: { fontSize: 22, fontWeight: '900' },
-  progressStatLabel: { fontSize: 11, fontWeight: '600', marginTop: 2 },
-  progressDivider: { width: 1, height: 32 },
-  progressBar: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  progressBarFill: { height: 6, borderRadius: 3, backgroundColor: '#1a56db' },
-
-  // ===== CONTINUE CARD =====
-  continueCard: {
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 14,
-    borderLeftWidth: 5,
-    borderLeftColor: '#ff9600',
-    shadowColor: '#ff9600',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  continueHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 6,
-  },
-  continueIcon: { fontSize: 16 },
-  continueLabel: { fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
-  continueTitle: { fontSize: 18, fontWeight: '900', marginBottom: 4 },
-  continueScore: { fontSize: 13, fontWeight: '600', marginBottom: 12 },
-  continueBtn: {
-    backgroundColor: '#ff9600',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
+    justifyContent: 'center',
     borderBottomWidth: 3,
-    borderBottomColor: '#d97706',
+    borderBottomColor: COLORS.orangeDark,
   },
-  continueBtnText: { fontSize: 14, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
+  ctaButtonText: { fontSize: 15, fontWeight: '700', color: '#fff', letterSpacing: 0.3 },
 
-  // ===== SECTION HEADERS =====
-  sectionHeader: {
+  // ═══════ MOTIVATION ROW (like Home streak) ═══════
+  motivationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 12,
-    marginTop: 14,
-    paddingHorizontal: 2,
+    borderRadius: 11,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 9,
   },
-  sectionIcon: { fontSize: 22 },
-  sectionTitle: { fontSize: 16, fontWeight: '900' },
-  sectionSubtitle: { fontSize: 12, fontWeight: '600', marginTop: 1 },
+  motivationIconWrap: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: 'rgba(30, 77, 183, 0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  motivationTitle: { fontSize: 13, fontWeight: '900', color: COLORS.blueDark },
+  motivationSub: { fontSize: 10, fontWeight: '600', color: COLORS.blue, marginTop: 1 },
+  motivationBadge: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: 'rgba(30, 77, 183, 0.1)',
+    alignItems: 'center', justifyContent: 'center',
+  },
 
-  // ===== EXAM CARD =====
+  // ═══════ SECTION HEADING (same as Home) ═══════
+  sectionHeading: { fontSize: 15, fontWeight: '900', letterSpacing: 0.2, marginTop: 2 },
+  sectionSub: { fontSize: 11, fontWeight: '500', marginTop: -6 },
+
+  // ═══════ EXAM CARDS (shadow-based, no border) ═══════
   examCard: {
-    borderRadius: 18,
-    borderWidth: 2,
-    borderBottomWidth: 4,
-    padding: 16,
-    marginBottom: 10,
+    borderRadius: 14,
+    padding: 14,
   },
   examCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    marginBottom: 10,
+    gap: 10,
   },
   examIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  examIconText: { fontSize: 20 },
   examCardBody: { flex: 1 },
   examTitle: { fontSize: 15, fontWeight: '800' },
-  examDesc: { fontSize: 12, marginTop: 2, fontWeight: '600' },
-  passedBadge: {
-    width: 28,
-    height: 28,
+  examMeta: { fontSize: 11, fontWeight: '500', marginTop: 2 },
+
+  // Status chip
+  statusChip: {
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  statusChipText: { fontSize: 10, fontWeight: '700' },
+
+  // ═══════ TIP CARD (shadow-based, like Home cards) ═══════
+  tipCard: {
     borderRadius: 14,
-    backgroundColor: '#16a34a',
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 14,
   },
-  passedBadgeText: { fontSize: 14, fontWeight: '900', color: '#fff' },
-  statusDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  tipIconWrap: {
+    width: 28, height: 28, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: 1,
   },
-
-  // Meta chips
-  examMetaRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  examMetaChip: {
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  examMetaText: { fontSize: 11, fontWeight: '700' },
-
-  // Score row
-  scoreRow: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    padding: 10,
-    alignItems: 'center',
-  },
-  scoreItem: { flex: 1, alignItems: 'center' },
-  scoreLabel: { fontSize: 10, fontWeight: '600' },
-  scoreValue: { fontSize: 14, fontWeight: '900', marginTop: 2 },
-  scoreDivider: { width: 1, height: 24 },
-
-  // ===== TIP BOX =====
-  tipBox: {
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 12,
-    borderWidth: 1,
-  },
-  tipTitle: { fontSize: 13, fontWeight: '800', marginBottom: 6 },
-  tipText: { fontSize: 13, lineHeight: 20 },
+  tipTitle: { fontSize: 13, fontWeight: '800', marginBottom: 3 },
+  tipText: { fontSize: 12, lineHeight: 18 },
 });

@@ -1,40 +1,24 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, SectionData } from '../types';
 import { sections } from '../data/sections';
-import { useTheme } from '../context/ThemeContext';
-import { isSectionComplete, getCompletedCount, isConceptComplete, getBestScore } from '../store/progress';
-import { whatIsUKSection } from '../data/whatIsUK';
-import { valuesAndPrinciplesSection } from '../data/valuesAndPrinciples';
-import { historyOfUKSection } from '../data/historyOfUK';
-import { modernSocietySection } from '../data/modernSociety';
-import { governmentAndLawSection } from '../data/governmentAndLaw';
+import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, COLORS } from '../context/ThemeContext';
+import { isSectionComplete, getCompletedCount, isConceptComplete } from '../store/progress';
+import { sectionDataMap } from '../data/sectionDataMap';
 
-const sectionDataMap: Record<number, SectionData> = {
-  1: whatIsUKSection,
-  2: valuesAndPrinciplesSection,
-  3: historyOfUKSection,
-  4: modernSocietySection,
-  5: governmentAndLawSection,
+const DIFFICULTY: Record<number, { label: string; color: string }> = {
+  1: { label: 'Beginner', color: '#22c55e' },
+  2: { label: 'Intermediate', color: '#f59e0b' },
+  3: { label: 'Intermediate', color: '#f59e0b' },
+  4: { label: 'Advanced', color: '#ef4444' },
+  5: { label: 'Advanced', color: '#ef4444' },
 };
 
-const DIFFICULTY: Record<number, { label: string; tag: string; color: string }> = {
-  1: { label: 'Beginner', tag: '\u{1F7E2}', color: '#22c55e' },
-  2: { label: 'Intermediate', tag: '\u{1F7E1}', color: '#f59e0b' },
-  3: { label: 'Intermediate', tag: '\u{1F7E1}', color: '#f59e0b' },
-  4: { label: 'Advanced', tag: '\u{1F534}', color: '#ef4444' },
-  5: { label: 'Advanced', tag: '\u{1F534}', color: '#ef4444' },
-};
-
-const UNLOCK_MESSAGES: Record<number, string> = {
-  2: 'Prove your basics to unlock Values & Principles',
-  3: 'Master values to explore UK History',
-  4: 'Know the past to understand modern life',
-  5: 'Understand society to tackle Government & Law',
-};
+import { XP_PER_CONCEPT } from '../store/progress';
 
 function isSectionUnlocked(index: number): boolean {
   if (index === 0) return true;
@@ -61,7 +45,7 @@ function findContinuePoint(): { sectionIndex: number; conceptIndex: number } | n
   return null;
 }
 
-function getTotalProgress(): number {
+function getTotalProgress(): { pct: number; done: number; total: number } {
   let total = 0;
   let done = 0;
   for (const sec of sections) {
@@ -70,7 +54,12 @@ function getTotalProgress(): number {
     total += data.concepts.length;
     done += getCompletedCount(sec.id, data.concepts.map(c => c.id));
   }
-  return total > 0 ? Math.round((done / total) * 100) : 0;
+  return { pct: total > 0 ? Math.round((done / total) * 100) : 0, done, total };
+}
+
+function getSectionEstMinutes(data: SectionData): number {
+  const totalQ = data.concepts.reduce((sum, c) => sum + (c.questions?.length ?? 0), 0);
+  return Math.max(1, Math.round((totalQ * 20) / 60));
 }
 
 export default function LearnScreen() {
@@ -84,7 +73,7 @@ export default function LearnScreen() {
     }, [])
   );
 
-  const totalPct = getTotalProgress();
+  const { pct: totalPct, done: totalDone, total: totalConcepts } = getTotalProgress();
   const continuePoint = findContinuePoint();
   const continueSection = continuePoint ? sections[continuePoint.sectionIndex] : null;
   const continueSectionData = continueSection ? sectionDataMap[continueSection.id] : null;
@@ -92,169 +81,204 @@ export default function LearnScreen() {
     ? continueSectionData.concepts[continuePoint.conceptIndex]
     : null;
 
+  const completedSections = sections.filter((sec) => {
+    const data = sectionDataMap[sec.id];
+    if (!data) return false;
+    return isSectionComplete(sec.id, data.concepts.map(c => c.id));
+  }).length;
+
+  const goToCurrentLesson = () => {
+    if (continuePoint && continueSection) {
+      navigation.navigate('SectionQuiz', {
+        sectionId: continueSection.id,
+        conceptIndex: continuePoint.conceptIndex,
+      });
+    }
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
-      {/* ===== HEADER WITH JOURNEY PROGRESS ===== */}
+      {/* ═══════ HEADER ═══════ */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <View style={styles.headerTop}>
-          <View>
-            <Text style={[styles.title, { color: colors.text }]}>Your Journey</Text>
-            <Text style={[styles.subtitle, { color: colors.mutedText }]}>
-              {totalPct === 0
-                ? 'Start your path to citizenship'
-                : totalPct === 100
-                  ? 'You\'ve completed all sections!'
-                  : `You're ${totalPct}% ready for the test`}
-            </Text>
-          </View>
+        <View>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Learn</Text>
+          <Text style={[styles.headerSub, { color: colors.subtext }]}>
+            {totalDone}/{totalConcepts} concepts · {completedSections}/{sections.length} sections
+          </Text>
         </View>
-
-        {/* Overall progress bar — loud + meaningful */}
-        <View style={styles.overallProgressWrap}>
-          <View style={styles.overallBarRow}>
-            <View style={[styles.overallBar, { backgroundColor: colors.border }]}>
-              <View style={[styles.overallBarFill, { width: `${Math.max(totalPct, totalPct > 0 ? 3 : 0)}%` }]} />
-            </View>
-            <Text style={styles.overallPct}>{totalPct}%</Text>
-          </View>
-          {continueSection && (
-            <Text style={[styles.currentFocus, { color: '#1a56db' }]}>
-              Current focus: {continueSection.emoji} {continueSection.title}
-            </Text>
-          )}
+        {/* Overall progress pill */}
+        <View style={[styles.headerPill, { backgroundColor: totalPct > 0 ? COLORS.blueLight : colors.chipBg }]}>
+          <Text style={[styles.headerPillText, { color: totalPct > 0 ? COLORS.blue : colors.subtext }]}>
+            {totalPct}%
+          </Text>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-        {/* ===== CONTINUE WHERE YOU LEFT OFF ===== */}
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ═══════ RESUME CHIP — small, not a full card ═══════ */}
         {continuePoint && continueConcept && continueSection && (
           <TouchableOpacity
-            style={[styles.continueCard, { backgroundColor: '#eef4ff' }]}
-            onPress={() => navigation.navigate('SectionQuiz', {
-              sectionId: continueSection.id,
-              conceptIndex: continuePoint.conceptIndex,
-            })}
-            activeOpacity={0.75}
+            style={[styles.resumeChip, { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue + '30' }]}
+            onPress={goToCurrentLesson}
+            activeOpacity={0.8}
           >
-            <View style={styles.continueHeader}>
-              <Text style={styles.continueIcon}>▶️</Text>
-              <Text style={[styles.continueLabel, { color: '#6b7280' }]}>Continue where you left off</Text>
+            <View style={styles.resumeLeft}>
+              <Ionicons name="play-circle" size={18} color={COLORS.blue} />
+              <View style={styles.resumeTextWrap}>
+                <Text style={[styles.resumeLabel, { color: COLORS.blue }]}>Resume</Text>
+                <Text style={[styles.resumeName, { color: COLORS.blueDark }]} numberOfLines={1}>
+                  {continueConcept.name}
+                </Text>
+              </View>
             </View>
-            <Text style={[styles.continueSectionName, { color: '#6b7280' }]}>
-              {continueSection.emoji} {continueSection.title}
-            </Text>
-            <Text style={[styles.continueName, { color: '#111' }]}>
-              {continueConcept.name}
-            </Text>
-            <Text style={[styles.continueTime, { color: '#6b7280' }]}>
-              ⚡ Takes ~2 minutes
-            </Text>
-            <View style={styles.continueCta}>
-              <Text style={styles.continueCtaText}>Continue</Text>
-            </View>
+            <Ionicons name="arrow-forward" size={16} color={COLORS.blue} />
           </TouchableOpacity>
         )}
 
-        {/* ===== SECTION CARDS ===== */}
+        {/* ═══════ ALL SECTIONS — The hero content ═══════ */}
+        <Text style={[styles.sectionHeading, { color: colors.text }]}>All Sections</Text>
+
         {sections.map((section, index) => {
           const unlocked = isSectionUnlocked(index);
           const data = sectionDataMap[section.id];
           const conceptIds = data ? data.concepts.map(c => c.id) : [];
           const completedCount = data ? getCompletedCount(section.id, conceptIds) : 0;
-          const totalConcepts = data ? data.concepts.length : 0;
-          const sectionPct = totalConcepts > 0 ? Math.round((completedCount / totalConcepts) * 100) : 0;
-          const bestScore = getBestScore(section.id);
+          const totalConceptsInSection = data ? data.concepts.length : 0;
+          const sectionPct = totalConceptsInSection > 0 ? Math.round((completedCount / totalConceptsInSection) * 100) : 0;
           const difficulty = DIFFICULTY[section.id] || DIFFICULTY[1];
-          const isComplete = totalConcepts > 0 && completedCount === totalConcepts;
+          const isComplete = totalConceptsInSection > 0 && completedCount === totalConceptsInSection;
           const isCurrent = continuePoint?.sectionIndex === index;
+          const sectionXP = totalConceptsInSection * XP_PER_CONCEPT;
+          const sectionTime = data ? getSectionEstMinutes(data) : 0;
+
+          const firstLockedIndex = sections.findIndex((_, i) => !isSectionUnlocked(i));
+          const isFirstLocked = !unlocked && index === firstLockedIndex;
 
           return (
             <TouchableOpacity
               key={section.id}
               style={[
-                styles.card,
-                { backgroundColor: colors.card, borderColor: colors.border },
-                isCurrent && { borderColor: section.color, borderWidth: 2.5 },
-                !unlocked && styles.cardLocked,
+                styles.sectionCard,
+                { backgroundColor: colors.card, borderColor: colors.borderCard },
+                isCurrent && { borderColor: COLORS.blue + '40' },
+                isComplete && { borderColor: COLORS.green + '40' },
+                !unlocked && (isFirstLocked ? styles.cardLockedNext : styles.cardLockedFar),
               ]}
               onPress={() => unlocked && navigation.navigate('SectionMap', { sectionId: section.id })}
               activeOpacity={unlocked ? 0.8 : 1}
             >
-              {/* Top row: icon + info + difficulty */}
               <View style={styles.cardRow}>
-                <View style={[styles.iconBg, { backgroundColor: section.color + '22' }]}>
-                  <Text style={styles.emoji}>{section.emoji}</Text>
+                <View style={[styles.iconBg, { backgroundColor: unlocked ? section.color + '18' : COLORS.iconBg }]}>
+                  <Ionicons name={section.icon as any} size={21} color={unlocked ? section.color : colors.mutedText} />
                 </View>
                 <View style={styles.info}>
                   <View style={styles.nameRow}>
-                    <Text style={[styles.name, { color: colors.text }]}>{section.title}</Text>
-                    {isCurrent && (
-                      <View style={[styles.recommendedBadge, { backgroundColor: section.color + '20' }]}>
-                        <Text style={[styles.recommendedText, { color: section.color }]}>Recommended</Text>
+                    <Text style={[styles.cardTitle, { color: unlocked ? colors.text : colors.subtext }]}>
+                      {section.title}
+                    </Text>
+                    {isComplete && (
+                      <View style={[styles.badge, { backgroundColor: COLORS.greenLight }]}>
+                        <Ionicons name="checkmark-circle" size={10} color={COLORS.greenDark} style={{ marginRight: 2 }} />
+                        <Text style={[styles.badgeText, { color: COLORS.greenDark }]}>Complete</Text>
                       </View>
                     )}
                   </View>
                   <View style={styles.metaRow}>
-                    <Text style={[styles.diffTag, { color: difficulty.color }]}>
-                      {difficulty.tag} {difficulty.label}
+                    <View style={[styles.diffDot, { backgroundColor: unlocked ? difficulty.color : colors.mutedText }]} />
+                    <Text style={[styles.diffTag, { color: unlocked ? difficulty.color : colors.mutedText }]}>
+                      {difficulty.label}
                     </Text>
                     <Text style={[styles.metaDot, { color: colors.subtext }]}> · </Text>
-                    <Text style={[styles.meta, { color: colors.subtext }]}>
-                      {totalConcepts} concepts · {section.totalQuestions} questions
+                    <Text style={[styles.meta, { color: unlocked ? colors.subtext : colors.mutedText }]}>
+                      {totalConceptsInSection} topics · ~{sectionTime} min
                     </Text>
                   </View>
                 </View>
+                {unlocked && <Ionicons name="chevron-forward" size={16} color={colors.subtext} />}
+                {!unlocked && <Ionicons name="lock-closed" size={14} color={colors.mutedText} />}
               </View>
 
-              {/* Progress section (only if unlocked) */}
-              {unlocked && totalConcepts > 0 && (
+              {/* Progress bar (unlocked, has progress) */}
+              {unlocked && totalConceptsInSection > 0 && (
                 <View style={styles.progressSection}>
                   <View style={styles.progressBarRow}>
                     <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-                      <View
-                        style={[
-                          styles.progressBarFill,
-                          { width: `${Math.max(sectionPct, sectionPct > 0 ? 3 : 0)}%`, backgroundColor: section.color },
-                        ]}
-                      />
+                      <View style={[styles.progressBarFill, {
+                        width: `${Math.max(sectionPct, sectionPct > 0 ? 3 : 0)}%`,
+                        backgroundColor: isComplete ? COLORS.green : section.color,
+                      }]} />
                     </View>
-                    <Text style={[styles.progressPct, { color: section.color }]}>{sectionPct}%</Text>
-                  </View>
-                  <View style={styles.progressStats}>
-                    <Text style={[styles.progressText, { color: colors.bodyText }]}>
-                      {isComplete
-                        ? '✅ All concepts completed'
-                        : completedCount === 0
-                          ? 'Start your first concept'
-                          : `${completedCount} of ${totalConcepts} concepts completed`}
+                    <Text style={[styles.progressPct, { color: isComplete ? COLORS.greenDark : section.color }]}>
+                      {completedCount}/{totalConceptsInSection}
                     </Text>
-                    {bestScore >= 0 ? (
-                      <Text style={[styles.bestScore, { color: '#f59e0b' }]}>
-                        ⭐ Best: {bestScore}%
-                      </Text>
-                    ) : !isComplete ? (
-                      <Text style={[styles.inlineArrow, { color: section.color }]}>
-                        {completedCount === 0 ? 'Start' : 'Continue'} →
-                      </Text>
-                    ) : null}
                   </View>
+                  {sectionPct === 0 && (
+                    <Text style={[styles.inlineArrow, { color: section.color }]}>Begin →</Text>
+                  )}
                 </View>
               )}
 
-              {/* Lock message (actionable) */}
+              {/* Lock message */}
               {!unlocked && (
                 <View style={styles.lockRow}>
-                  <Text style={styles.lockIcon}>🔒</Text>
-                  <Text style={[styles.lockText, { color: colors.mutedText }]}>
-                    {index > 0
-                      ? `Complete '${sections[index - 1].title}' to unlock`
-                      : 'Complete previous section to unlock'}
+                  <Text style={[styles.lockText, { color: colors.subtext }]}>
+                    Complete {sections[index - 1]?.title} to unlock
                   </Text>
                 </View>
               )}
             </TouchableOpacity>
           );
         })}
+
+        {/* ═══════ QUICK ACTIONS ═══════ */}
+        <Text style={[styles.sectionHeading, { color: colors.text }]}>Tools</Text>
+        <View style={styles.quickRow}>
+          <TouchableOpacity
+            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }]}
+            onPress={goToCurrentLesson}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.blueLight }]}>
+              <Ionicons name="flash" size={14} color={COLORS.blue} />
+            </View>
+            <Text style={[styles.quickLabel, { color: colors.text }]}>Quick Quiz</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }]}
+            onPress={() => {
+              if (continueSection && continueSectionData) {
+                const completed = getCompletedCount(continueSection.id, continueSectionData.concepts.map(c => c.id));
+                if (completed > 0) {
+                  navigation.navigate('SectionQuiz', { sectionId: continueSection.id, conceptIndex: 0 });
+                }
+              }
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.greenLight }]}>
+              <Ionicons name="refresh" size={14} color={COLORS.green} />
+            </View>
+            <Text style={[styles.quickLabel, { color: colors.text }]}>Review</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }]}
+            onPress={() => navigation.navigate('MockExam' as any)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.goldLight }]}>
+              <Ionicons name="document-text" size={14} color={COLORS.gold} />
+            </View>
+            <Text style={[styles.quickLabel, { color: colors.text }]}>Mock Exam</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ height: 20 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -262,90 +286,93 @@ export default function LearnScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  scrollContent: { flex: 1 },
+  scrollContainer: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 24, gap: 10 },
 
-  // Header
-  header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 16, borderBottomWidth: 1 },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  title: { fontSize: 28, fontWeight: '900' },
-  subtitle: { fontSize: 14, marginTop: 4, fontWeight: '600' },
-  overallProgressWrap: { marginTop: 14 },
-  overallBarRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  overallBar: { flex: 1, height: 10, borderRadius: 5, overflow: 'hidden' },
-  overallBarFill: { height: 10, borderRadius: 5, backgroundColor: '#1a56db' },
-  overallPct: { fontSize: 16, fontWeight: '900', color: '#1a56db', minWidth: 38 },
-  currentFocus: { fontSize: 12, fontWeight: '800', marginTop: 6 },
-
-  // List
-  list: { padding: 16, gap: 12, paddingBottom: 24 },
-
-  // Continue card — PRIMARY ACTION, visually dominant
-  continueCard: {
-    borderRadius: 18,
-    padding: 18,
-    borderLeftWidth: 5,
-    borderLeftColor: '#1a56db',
-    shadowColor: '#1a56db',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  continueHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  continueIcon: { fontSize: 14 },
-  continueLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
-  continueSectionName: { fontSize: 13, fontWeight: '700', marginBottom: 2 },
-  continueName: { fontSize: 17, fontWeight: '900', marginBottom: 4 },
-  continueTime: { fontSize: 12, fontWeight: '700', marginBottom: 12 },
-  continueCta: {
-    backgroundColor: '#1a56db',
-    borderRadius: 12,
-    paddingVertical: 11,
+  // ═══════ HEADER ═══════
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottomWidth: 3,
-    borderBottomColor: '#1439a8',
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
   },
-  continueCtaText: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 0.3 },
+  headerTitle: { fontSize: 26, fontWeight: '900' },
+  headerSub: { fontSize: 11, fontWeight: '600', marginTop: 1 },
+  headerPill: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  headerPillText: { fontSize: 13, fontWeight: '800' },
 
-  // Section cards
-  card: {
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1.5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+  // ═══════ RESUME CHIP — compact, not a full card ═══════
+  resumeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
   },
-  cardLocked: { opacity: 0.5 },
-  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  iconBg: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  emoji: { fontSize: 24 },
+  resumeLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  resumeTextWrap: { flex: 1 },
+  resumeLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  resumeName: { fontSize: 13, fontWeight: '700', marginTop: 1 },
+
+  // ═══════ SECTION HEADING ═══════
+  sectionHeading: { fontSize: 15, fontWeight: '900', letterSpacing: 0.2, marginTop: 4 },
+
+  // ═══════ SECTION CARDS ═══════
+  sectionCard: {
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+  },
+  cardLockedNext: { opacity: 0.7 },
+  cardLockedFar: { opacity: 0.45 },
+  cardRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  iconBg: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   info: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  name: { fontSize: 15, fontWeight: '800' },
-  recommendedBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
-  recommendedText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3 },
-  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, flexWrap: 'wrap' },
-  diffTag: { fontSize: 12, fontWeight: '700' },
-  metaDot: { fontSize: 12 },
-  meta: { fontSize: 12 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  cardTitle: { fontSize: 15, fontWeight: '800' },
+  badge: { flexDirection: 'row', alignItems: 'center', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  badgeText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3 },
+  metaRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2, flexWrap: 'wrap' },
+  diffDot: { width: 6, height: 6, borderRadius: 3, marginRight: 4 },
+  diffTag: { fontSize: 11, fontWeight: '700' },
+  metaDot: { fontSize: 11 },
+  meta: { fontSize: 11 },
 
   // Progress
-  progressSection: { marginTop: 12 },
+  progressSection: { marginTop: 8, paddingLeft: 52 },
   progressBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  progressBar: { flex: 1, height: 6, borderRadius: 3, overflow: 'hidden' },
-  progressBarFill: { height: 6, borderRadius: 3 },
-  progressPct: { fontSize: 12, fontWeight: '900', minWidth: 30 },
-  progressStats: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
-  progressText: { fontSize: 12, fontWeight: '700' },
-  bestScore: { fontSize: 12, fontWeight: '700' },
-
-  // Inline arrow (subtle section-level CTA)
-  inlineArrow: { fontSize: 12, fontWeight: '800' },
+  progressBar: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
+  progressBarFill: { height: 4, borderRadius: 2 },
+  progressPct: { fontSize: 11, fontWeight: '800', minWidth: 24 },
+  inlineArrow: { fontSize: 12, fontWeight: '800', marginTop: 4 },
 
   // Lock
-  lockRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
-  lockIcon: { fontSize: 13 },
-  lockText: { fontSize: 12, fontWeight: '600', fontStyle: 'italic', flex: 1 },
+  lockRow: { marginTop: 8, paddingLeft: 52 },
+  lockText: { fontSize: 11, fontWeight: '500' },
+
+  // ═══════ QUICK ACTIONS ═══════
+  quickRow: { flexDirection: 'row', gap: 7 },
+  quickBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    paddingVertical: 10,
+    gap: 4,
+    borderWidth: 1,
+  },
+  quickIconWrap: {
+    width: 28, height: 28, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  quickLabel: { fontSize: 11, fontWeight: '700' },
 });

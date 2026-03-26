@@ -5,49 +5,56 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Dimensions,
   Modal,
   Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
-import { whatIsUKSection } from '../data/whatIsUK';
-import { valuesAndPrinciplesSection } from '../data/valuesAndPrinciples';
-import { historyOfUKSection } from '../data/historyOfUK';
-import { modernSocietySection } from '../data/modernSociety';
-import { governmentAndLawSection } from '../data/governmentAndLaw';
 import { sections } from '../data/sections';
-import { isConceptComplete, isSectionComplete, getXP, getCompletedCount } from '../store/progress';
-import { useTheme } from '../context/ThemeContext';
+import { sectionDataMap as allSectionData } from '../data/sectionDataMap';
+import { isConceptComplete, isSectionComplete, getXP, getCompletedCount, getStreak } from '../store/progress';
+import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_CTA, COLORS, CARD, CTA } from '../context/ThemeContext';
 import { SectionData } from '../types';
 
-const allSectionData: Record<number, SectionData> = {
-  1: whatIsUKSection,
-  2: valuesAndPrinciplesSection,
-  3: historyOfUKSection,
-  4: modernSocietySection,
-  5: governmentAndLawSection,
-};
+const TOTAL_CONCEPTS = Object.values(allSectionData).reduce(
+  (sum, sd) => sum + sd.concepts.length, 0,
+);
 
-const { width: SW } = Dimensions.get('window');
 
-const STREAK = 12;
+// ─── Level icons mapped to Ionicons ───
+type IoniconsName = keyof typeof Ionicons.glyphMap;
+const LEVEL_ICONS: IoniconsName[] = [
+  'globe-outline',         // New Arrival
+  'briefcase-outline',     // Visitor
+  'home-outline',          // Resident
+  'people-outline',        // Community Member
+  'compass-outline',       // Local Explorer
+  'time-outline',          // History Learner
+  'color-palette-outline', // Culture Aware
+  'business-outline',      // UK Insider
+  'checkmark-circle-outline', // Civic Participant
+  'shield-checkmark-outline', // Institution Expert
+  'ribbon-outline',        // Exam Ready
+  'trophy-outline',        // Citizen Master
+];
 
 const LEVELS = [
-  { name: 'New Arrival',        xp: 0,     icon: '🌍', subtitle: "You're just getting started on your UK journey", unlock: 'Start learning' },
-  { name: 'Visitor',            xp: 400,   icon: '🧳', subtitle: 'Getting to know the basics', unlock: 'Complete Section 1' },
-  { name: 'Resident',           xp: 1200,  icon: '🏠', subtitle: 'Building a foundation of knowledge', unlock: 'Unlock after Section 2' },
-  { name: 'Community Member',   xp: 2400,  icon: '👥', subtitle: 'Understanding how people live together', unlock: 'Master values & principles' },
-  { name: 'Local Explorer',     xp: 4000,  icon: '🗺️', subtitle: 'Discovering what makes the UK unique', unlock: 'Explore UK history' },
-  { name: 'History Learner',    xp: 6000,  icon: '📜', subtitle: 'Connecting past to present', unlock: 'Dive deeper into history' },
-  { name: 'Culture Aware',      xp: 8200,  icon: '🎭', subtitle: 'Appreciating traditions and culture', unlock: 'Study modern society' },
-  { name: 'UK Insider',         xp: 10500, icon: '🏙️', subtitle: 'You really know your stuff', unlock: 'Learn about governance' },
-  { name: 'Civic Participant',  xp: 13000, icon: '🗳️', subtitle: 'Ready to engage with civic life', unlock: 'Master government & law' },
-  { name: 'Institution Expert', xp: 15500, icon: '⚖️', subtitle: 'Deep understanding of UK institutions', unlock: 'Complete all sections' },
-  { name: 'Exam Ready',         xp: 17200, icon: '✅', subtitle: 'Prepared to pass with confidence', unlock: 'Practice mock exams' },
-  { name: 'Citizen Master',     xp: 18000, icon: '👑', subtitle: 'You\'ve mastered it all', unlock: 'Achieve full mastery' },
+  { name: 'New Arrival',        xp: 0,     subtitle: 'Just getting started on your journey', unlock: 'Start learning' },
+  { name: 'Visitor',            xp: 400,   subtitle: 'Getting to know the basics', unlock: 'Complete Section 1' },
+  { name: 'Resident',           xp: 1200,  subtitle: 'Building a foundation of knowledge', unlock: 'Unlock after Section 2' },
+  { name: 'Community Member',   xp: 2400,  subtitle: 'Understanding how people live together', unlock: 'Master values & principles' },
+  { name: 'Local Explorer',     xp: 4000,  subtitle: 'Discovering what makes the UK unique', unlock: 'Explore UK history' },
+  { name: 'History Learner',    xp: 6000,  subtitle: 'Connecting past to present', unlock: 'Dive deeper into history' },
+  { name: 'Culture Aware',      xp: 8200,  subtitle: 'Appreciating traditions and culture', unlock: 'Study modern society' },
+  { name: 'UK Insider',         xp: 10500, subtitle: 'You really know your stuff', unlock: 'Learn about governance' },
+  { name: 'Civic Participant',  xp: 13000, subtitle: 'Ready to engage with civic life', unlock: 'Master government & law' },
+  { name: 'Institution Expert', xp: 15500, subtitle: 'Deep understanding of UK institutions', unlock: 'Complete all sections' },
+  { name: 'Exam Ready',         xp: 17200, subtitle: 'Prepared to pass with confidence', unlock: 'Practice mock exams' },
+  { name: 'Citizen Master',     xp: 18000, subtitle: "You've mastered it all", unlock: 'Achieve full mastery' },
 ];
 
 function getCurrentLevel(xp: number) {
@@ -82,7 +89,7 @@ function findCurrentProgress(allData: Record<number, SectionData>) {
     }
   }
   const lastSec = sections[sections.length - 1];
-  const lastData = allData[lastSec.id];
+  const lastData = allSectionData[lastSec.id];
   return {
     sectionIndex: sections.length - 1,
     conceptIndex: lastData ? lastData.concepts.length - 1 : 0,
@@ -93,7 +100,36 @@ function findCurrentProgress(allData: Record<number, SectionData>) {
   };
 }
 
-const XP_PER_CONCEPT = 120;
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+import { XP_PER_CONCEPT } from '../store/progress';
+
+function usePressScale() {
+  const scale = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 50, bounciness: 4 }).start();
+  const onPressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50, bounciness: 4 }).start();
+  return { scale, onPressIn, onPressOut };
+}
+
+function getGlobalCompleted() {
+  let count = 0;
+  for (const sec of sections) {
+    const data = allSectionData[sec.id];
+    if (!data) continue;
+    count += getCompletedCount(sec.id, data.concepts.map(c => c.id));
+  }
+  return count;
+}
+
+// ─── Level badge component ───
+function LevelBadge({ index, size, color }: { index: number; size: number; color: string }) {
+  return <Ionicons name={LEVEL_ICONS[index] || 'ellipse-outline'} size={size} color={color} />;
+}
 
 export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -102,7 +138,12 @@ export default function HomeScreen() {
   const [showLevels, setShowLevels] = useState(false);
   const XP = getXP();
   const currentLevel = getCurrentLevel(XP);
+
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const heroBarAnim = useRef(new Animated.Value(0)).current;
+  const ctaBounce = useRef(new Animated.Value(0)).current;
+
+  const heroPress = usePressScale();
 
   useEffect(() => {
     if (showLevels && currentLevel < LEVELS.length - 1) {
@@ -113,9 +154,22 @@ export default function HomeScreen() {
         useNativeDriver: false,
       }).start();
     }
-  }, [showLevels]);
+  }, [showLevels, currentLevel, XP]);
 
-  useFocusEffect(useCallback(() => { forceUpdate((n: number) => n + 1); }, []));
+  useFocusEffect(useCallback(() => {
+    forceUpdate((n: number) => n + 1);
+
+    const globalPct = TOTAL_CONCEPTS > 0 ? getGlobalCompleted() / TOTAL_CONCEPTS : 0;
+    heroBarAnim.setValue(0);
+    Animated.timing(heroBarAnim, {
+      toValue: globalPct,
+      duration: 900,
+      useNativeDriver: false,
+    }).start();
+
+    ctaBounce.setValue(-6);
+    Animated.spring(ctaBounce, { toValue: 0, useNativeDriver: true, speed: 14, bounciness: 10 }).start();
+  }, []));
 
   const progress = findCurrentProgress(allSectionData);
   const isAllComplete = !!(progress as any).allComplete;
@@ -128,20 +182,11 @@ export default function HomeScreen() {
   const completedInSection = currentSectionData
     ? getCompletedCount(currentSection.id, sectionConcepts.map(c => c.id))
     : 0;
-  const sectionProgressPct = sectionConcepts.length > 0
-    ? Math.round((completedInSection / sectionConcepts.length) * 100)
-    : 0;
 
+  const globalCompleted = getGlobalCompleted();
+  const streak = getStreak();
+  const overallPct = TOTAL_CONCEPTS > 0 ? Math.round((globalCompleted / TOTAL_CONCEPTS) * 100) : 0;
 
-  // XP display: at 0 XP, show the reward they can earn NOW (aligned with hero card)
-  const xpChipText = XP > 0 ? `${XP} XP` : `Earn ${XP_PER_CONCEPT} XP`;
-
-  // Level progress percentage
-  const levelProgressPct = currentLevel < LEVELS.length - 1
-    ? Math.round(((XP - LEVELS[currentLevel].xp) / (LEVELS[currentLevel + 1].xp - LEVELS[currentLevel].xp)) * 100)
-    : 100;
-
-  // Estimated time (~20 sec per question)
   const estMinutes = Math.max(1, Math.round((questionsInConcept * 20) / 60));
 
   const goToCurrentLesson = () => {
@@ -150,214 +195,278 @@ export default function HomeScreen() {
     }
   };
 
+  const levelPct = currentLevel < LEVELS.length - 1
+    ? Math.round(((XP - LEVELS[currentLevel].xp) / (LEVELS[currentLevel + 1].xp - LEVELS[currentLevel].xp)) * 100)
+    : 100;
+
+  const heroTitle = overallPct === 0
+    ? "You're just getting started"
+    : `You're ${overallPct}% ready to pass`;
+  const heroSubline = 'Life in the UK Test';
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
-      {/* ===== TOP STATUS BAR ===== */}
-      <View style={[styles.statusBar, { backgroundColor: colors.screenBg, borderBottomColor: colors.border }]}>
-        <View style={[styles.statusChip, { backgroundColor: colors.chipBg }]}>
-          <Text style={styles.statusIcon}>🔥</Text>
-          <Text style={[styles.statusVal, { color: colors.bodyText }]}>{STREAK}</Text>
-          <Text style={[styles.statusLabel, { color: colors.subtext }]}>streak</Text>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.statusChip, { backgroundColor: colors.chipBg }]}
-          onPress={() => setShowLevels(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.statusIcon}>⭐</Text>
-          <Text style={[styles.statusVal, { color: colors.bodyText }]}>{xpChipText}</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.statusChip, { backgroundColor: colors.chipBg }]}
-          onPress={() => setShowLevels(true)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.statusIcon}>🏆</Text>
-          <Text style={[styles.statusVal, { color: colors.bodyText }]} numberOfLines={1}>
-            {LEVELS[currentLevel].name}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* ===== SCROLLABLE CONTENT ===== */}
       <ScrollView
         style={styles.scrollContent}
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== IDENTITY CARD ===== */}
-        <TouchableOpacity
-          style={[styles.identityCard, { backgroundColor: colors.card }]}
-          onPress={() => setShowLevels(true)}
-          activeOpacity={0.85}
+        {/* ═══════ 1. HERO — Gradient card ═══════ */}
+        <LinearGradient
+          colors={['#1A44A8', '#2556C8', '#3068D8']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.heroBlock, SHADOW_CARD]}
         >
-          <View style={styles.identityRow}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarTxt}>J</Text>
-            </View>
-            <View style={styles.identityInfo}>
-              <Text style={[styles.identityName, { color: colors.text }]}>John Durrant</Text>
-              <View style={styles.identityLevelRow}>
-                <Text style={styles.identityLevelIcon}>{LEVELS[currentLevel].icon}</Text>
-                <Text style={[styles.identityLevel, { color: '#1a56db' }]}>{LEVELS[currentLevel].name}</Text>
+          <Text style={styles.heroGreeting}>{getGreeting()}, Dimitris</Text>
+          <Text style={styles.heroHeadline}>
+            {heroTitle}
+            {'\n'}
+            <Text style={styles.heroSubline}>{heroSubline}</Text>
+          </Text>
+
+          <View style={styles.heroBarTrack}>
+            <Animated.View style={[styles.heroBarFill, {
+              width: heroBarAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '100%'],
+              }),
+            }]} />
+          </View>
+
+          <View style={styles.heroMeta}>
+            <View style={styles.heroRankRow}>
+              <View style={styles.heroRankBadge}>
+                <LevelBadge index={currentLevel} size={14} color="#fff" />
               </View>
+              <Text style={styles.heroRankText}>{LEVELS[currentLevel].name}</Text>
             </View>
             {currentLevel < LEVELS.length - 1 && (
-              <View style={styles.identityPctBadge}>
-                <Text style={styles.identityPctText}>{levelProgressPct}%</Text>
-              </View>
+              <TouchableOpacity onPress={() => setShowLevels(true)} activeOpacity={0.7} style={styles.heroNextBtn}>
+                <Text style={styles.heroNextText}>Next: {LEVELS[currentLevel + 1].name}</Text>
+                <Ionicons name="chevron-forward" size={12} color="rgba(255,255,255,0.7)" />
+              </TouchableOpacity>
             )}
           </View>
-          {currentLevel < LEVELS.length - 1 && (
-            <View style={styles.identityProgress}>
-              <View style={[styles.identityBar, { backgroundColor: colors.border }]}>
-                <View style={[styles.identityBarFill, { width: `${levelProgressPct}%` }]} />
-              </View>
-              <Text style={[styles.identityXpText, { color: colors.subtext }]}>
-                Next: {LEVELS[currentLevel + 1].icon} {LEVELS[currentLevel + 1].name} ({LEVELS[currentLevel + 1].xp - XP} XP)
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        </LinearGradient>
 
-        {/* ===== HERO — NEXT ACTION CARD (primary CTA) ===== */}
+        {/* ═══════ 2. CONTINUE LEARNING — Primary CTA ═══════ */}
         {!isAllComplete && currentConcept && (
-          <TouchableOpacity
-            style={[styles.heroAction, { backgroundColor: colors.card }]}
-            onPress={goToCurrentLesson}
-            activeOpacity={0.75}
-          >
-            <View style={styles.heroActionHeader}>
-              <Text style={styles.heroActionTarget}>🎯</Text>
-              <Text style={[styles.heroActionTitle, { color: colors.text }]}>Continue your journey</Text>
-            </View>
+          <Animated.View style={{ transform: [{ scale: heroPress.scale }, { translateY: ctaBounce }] }}>
+            <TouchableOpacity
+              style={[styles.ctaCard, { backgroundColor: colors.card }, SHADOW_CARD]}
+              onPress={goToCurrentLesson}
+              onPressIn={heroPress.onPressIn}
+              onPressOut={heroPress.onPressOut}
+              activeOpacity={0.9}
+            >
+              <Text style={[styles.ctaLabel, { color: colors.subtext }]}>YOUR NEXT BEST ACTION</Text>
+              <Text style={[styles.ctaTitle, { color: colors.text }]}>{currentConcept.name}</Text>
 
-            <Text style={[styles.heroActionConceptName, { color: colors.text }]}>
-              ▶ {XP === 0 ? 'Start' : 'Continue'}: {currentConcept.name}
-            </Text>
+              <View style={styles.ctaChips}>
+                <View style={[styles.chip, { backgroundColor: COLORS.goldLight }]}>
+                  <Ionicons name="star" size={11} color={COLORS.gold} style={{ marginRight: 3 }} />
+                  <Text style={[styles.chipText, { color: COLORS.gold }]}>+{XP_PER_CONCEPT} XP</Text>
+                </View>
+                <View style={[styles.chip, { backgroundColor: colors.chipBg }]}>
+                  <Ionicons name="time-outline" size={11} color={colors.bodyText} style={{ marginRight: 3 }} />
+                  <Text style={[styles.chipText, { color: colors.bodyText }]}>~{estMinutes} min</Text>
+                </View>
+              </View>
 
-            {/* Reward grid */}
-            <View style={styles.heroActionGrid}>
-              <View style={styles.heroActionGridItem}>
-                <Text style={styles.heroActionGridIcon}>📘</Text>
-                <Text style={[styles.heroActionGridText, { color: colors.bodyText }]}>{questionsInConcept} questions</Text>
+              <View style={[styles.ctaButton, SHADOW_CTA]}>
+                <Text style={styles.ctaButtonText}>{globalCompleted > 0 ? 'Continue Learning' : 'Start Learning'}</Text>
+                <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
               </View>
-              <View style={styles.heroActionGridItem}>
-                <Text style={styles.heroActionGridIcon}>⭐</Text>
-                <Text style={[styles.heroActionGridText, { color: colors.bodyText }]}>+{XP_PER_CONCEPT} XP</Text>
-              </View>
-              <View style={styles.heroActionGridItem}>
-                <Text style={styles.heroActionGridIcon}>⏱</Text>
-                <Text style={[styles.heroActionGridText, { color: colors.bodyText }]}>~{estMinutes} min</Text>
-              </View>
-              <View style={styles.heroActionGridItem}>
-                <Text style={styles.heroActionGridIcon}>🔓</Text>
-                <Text style={[styles.heroActionGridText, { color: colors.bodyText }]}>Unlock next topic</Text>
-              </View>
-            </View>
-
-            {/* Streak urgency — loss aversion */}
-            <View style={styles.heroStreakRow}>
-              <Text style={styles.heroStreakText}>🔥 Don't lose your {STREAK}-day streak</Text>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </Animated.View>
         )}
 
         {isAllComplete && (
           <TouchableOpacity
-            style={[styles.heroAction, { backgroundColor: colors.card }]}
-            onPress={() => navigation.navigate('Home' as any)}
-            activeOpacity={0.75}
+            style={[styles.ctaCard, { backgroundColor: colors.card }, SHADOW_CARD]}
+            onPress={() => navigation.navigate('MockExam' as any)}
+            activeOpacity={0.85}
           >
-            <View style={styles.heroActionHeader}>
-              <Text style={styles.heroActionTarget}>🎉</Text>
-              <Text style={[styles.heroActionTitle, { color: colors.text }]}>All lessons complete!</Text>
+            <Text style={[styles.ctaLabel, { color: colors.subtext }]}>ALL LESSONS COMPLETE</Text>
+            <Text style={[styles.ctaTitle, { color: colors.text }]}>Ready for the real thing</Text>
+            <View style={[styles.ctaButton, SHADOW_CTA]}>
+              <Text style={styles.ctaButtonText}>Take Mock Exam</Text>
             </View>
-            <Text style={[styles.heroActionConceptName, { color: colors.subtext, fontSize: 14, fontWeight: '600' }]}>
-              You've mastered all the material. Tap to take a mock exam.
-            </Text>
           </TouchableOpacity>
         )}
 
+        {/* ═══════ 3. STREAK — Warm compact row ═══════ */}
+        <LinearGradient
+          colors={['#FFF7EB', '#FFECD2', '#FFE0B8']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[styles.streakRow, SHADOW_CARD_SM]}
+        >
+          <View style={styles.streakIconWrap}>
+            <Ionicons name="flame" size={16} color="#e07800" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.streakTitle}>{streak} day streak</Text>
+            <Text style={styles.streakSub}>Keep it going!</Text>
+          </View>
+          <View style={styles.streakBadge}>
+            <Ionicons name="trending-up" size={13} color="#b45309" />
+          </View>
+        </LinearGradient>
 
-        {/* ===== QUICK ACTIONS ===== */}
-        <View style={styles.quickActionsRow}>
+        {/* ═══════ 4. JOURNEY PREVIEW ═══════ */}
+        <View style={styles.journeySection}>
+          <Text style={[styles.journeyTitle, { color: colors.text }]}>Your Journey</Text>
+
+          {/* Current rank */}
           <TouchableOpacity
-            style={[styles.quickAction, styles.quickActionPrimary, { backgroundColor: colors.card }]}
-            onPress={goToCurrentLesson}
-            activeOpacity={0.8}
+            style={[styles.jCurrent, { backgroundColor: colors.card }, SHADOW_CARD_SM]}
+            onPress={() => setShowLevels(true)}
+            activeOpacity={0.85}
           >
-            <Text style={styles.quickActionIcon}>🧠</Text>
-            <Text style={[styles.quickActionLabel, { color: colors.text }]}>Quick Quiz</Text>
-            <Text style={[styles.quickActionSub, { color: colors.subtext }]}>30 sec</Text>
+            <View style={styles.jCurrentBadge}>
+              <LevelBadge index={currentLevel} size={20} color="#fff" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.jCurrentName, { color: colors.text }]}>{LEVELS[currentLevel].name}</Text>
+              {currentLevel < LEVELS.length - 1 && (
+                <View style={[styles.jMiniBar, { backgroundColor: colors.border, marginTop: 5 }]}>
+                  <View style={[styles.jMiniBarFill, { width: `${levelPct}%` }]} />
+                </View>
+              )}
+              <Text style={[styles.jXpLabel, { color: colors.subtext }]}>
+                {currentLevel < LEVELS.length - 1
+                  ? `${XP} / ${LEVELS[currentLevel + 1].xp.toLocaleString()} XP`
+                  : 'Max level'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.subtext} />
+          </TouchableOpacity>
+
+          {/* Connector + Next rank */}
+          {currentLevel < LEVELS.length - 1 && (
+            <>
+              <View style={styles.jConnector}>
+                <View style={[styles.jConnectorActive, { backgroundColor: COLORS.blue }]} />
+                <View style={[styles.jConnectorFade, { backgroundColor: colors.border }]} />
+              </View>
+              <View style={[styles.jNextRow, { borderColor: COLORS.orange, backgroundColor: COLORS.orangeLight }]}>
+                <View style={[styles.jSmallBadge, { backgroundColor: '#fff', borderColor: COLORS.orange }]}>
+                  <LevelBadge index={currentLevel + 1} size={14} color={COLORS.orange} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.jNextName}>{LEVELS[currentLevel + 1].name}</Text>
+                  <Text style={styles.jNextSub}>{LEVELS[currentLevel + 1].unlock}</Text>
+                </View>
+              </View>
+            </>
+          )}
+
+          {/* One locked peek */}
+          {currentLevel + 2 < LEVELS.length && (
+            <>
+              <View style={styles.jConnectorShort}>
+                <View style={[styles.jConnectorLine, { backgroundColor: colors.border }]} />
+              </View>
+              <View style={styles.jLockedRow}>
+                <View style={[styles.jSmallBadge, { backgroundColor: '#f0f0f0', borderColor: '#ddd' }]}>
+                  <Ionicons name="lock-closed" size={11} color="#bbb" />
+                </View>
+                <Text style={[styles.jLockedName, { color: colors.mutedText }]}>{LEVELS[currentLevel + 2].name}</Text>
+              </View>
+            </>
+          )}
+
+          {/* View all */}
+          <TouchableOpacity
+            style={styles.viewAllBtn}
+            onPress={() => setShowLevels(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={[styles.viewAllText, { color: COLORS.blue }]}>View full journey</Text>
+            <Ionicons name="chevron-forward" size={14} color={COLORS.blue} />
+          </TouchableOpacity>
+        </View>
+
+        {/* ═══════ 5. QUICK ACTIONS — Secondary shortcuts ═══════ */}
+        <View style={styles.quickRow}>
+          <TouchableOpacity
+            style={[styles.quickBtn, { backgroundColor: colors.card }, SHADOW_CARD_SM]}
+            onPress={goToCurrentLesson}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.blueLight }]}>
+              <Ionicons name="flash" size={14} color={COLORS.blue} />
+            </View>
+            <Text style={[styles.quickLabel, { color: colors.text }]}>Quick Quiz</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.quickAction, { backgroundColor: colors.card, opacity: completedInSection > 0 ? 1 : 0.45 }]}
+            style={[styles.quickBtn, { backgroundColor: colors.card }, SHADOW_CARD_SM]}
             onPress={() => {
               if (currentSectionData && completedInSection > 0) {
                 navigation.navigate('SectionQuiz', { sectionId: currentSection.id, conceptIndex: 0 });
               }
             }}
-            activeOpacity={completedInSection > 0 ? 0.8 : 1}
+            activeOpacity={0.7}
           >
-            <Text style={styles.quickActionIcon}>🔁</Text>
-            <Text style={[styles.quickActionLabel, { color: colors.text }]}>Review</Text>
-            <Text style={[styles.quickActionSub, { color: colors.subtext }]}>Past lessons</Text>
+            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.greenLight }]}>
+              <Ionicons name="refresh" size={14} color={COLORS.green} />
+            </View>
+            <Text style={[styles.quickLabel, { color: colors.text }]}>Review</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.quickAction, { backgroundColor: colors.card, opacity: sectionProgressPct > 0 ? 1 : 0.45 }]}
-            onPress={() => setShowLevels(true)}
-            activeOpacity={0.8}
+            style={[styles.quickBtn, { backgroundColor: colors.card }, SHADOW_CARD_SM]}
+            onPress={() => (navigation as any).navigate('ProgressTab')}
+            activeOpacity={0.7}
           >
-            <Text style={styles.quickActionIcon}>📊</Text>
-            <Text style={[styles.quickActionLabel, { color: colors.text }]}>Progress</Text>
-            <Text style={[styles.quickActionSub, { color: colors.subtext }]}>{sectionProgressPct > 0 ? `${sectionProgressPct}%` : '—'}</Text>
+            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.goldLight }]}>
+              <Ionicons name="stats-chart" size={14} color={COLORS.gold} />
+            </View>
+            <Text style={[styles.quickLabel, { color: colors.text }]}>Progress</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
 
-      {/* NO bottom CTA — hero card IS the CTA */}
-
-      {/* ===== LEVELS MODAL ===== */}
+      {/* ═══════ LEVELS MODAL ═══════ */}
       <Modal visible={showLevels} transparent animationType="slide" onRequestClose={() => setShowLevels(false)}>
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowLevels(false)}>
           <View
-            style={[styles.modalSheet, { backgroundColor: colors.screenBg }]}
+            style={[styles.modalSheet, { backgroundColor: colors.card }]}
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHandle} />
             <Text style={[styles.modalTitle, { color: colors.text }]}>Your Journey</Text>
 
-            <View style={[styles.modalHeroCard, { backgroundColor: colors.chipBg }]}>
-              <View style={styles.modalHeroBadge}>
-                <Text style={styles.modalHeroIcon}>{LEVELS[currentLevel].icon}</Text>
+            {/* Current level hero */}
+            <View style={[styles.mHeroCard, { backgroundColor: colors.chipBg }]}>
+              <View style={styles.mHeroBadge}>
+                <LevelBadge index={currentLevel} size={24} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.modalHeroName, { color: colors.text }]}>{LEVELS[currentLevel].name}</Text>
-                <Text style={[styles.modalHeroSubtitle, { color: colors.subtext }]}>{LEVELS[currentLevel].subtitle}</Text>
+                <Text style={[styles.mHeroName, { color: colors.text }]}>{LEVELS[currentLevel].name}</Text>
+                <Text style={[styles.mHeroSub, { color: colors.subtext }]}>{LEVELS[currentLevel].subtitle}</Text>
                 {currentLevel < LEVELS.length - 1 ? (
                   <>
-                    <View style={[styles.modalHeroBar, { backgroundColor: colors.border, marginTop: 12 }]}>
-                      <Animated.View style={[styles.modalHeroBarFill, {
+                    <View style={[styles.mHeroBar, { backgroundColor: colors.border, marginTop: 8 }]}>
+                      <Animated.View style={[styles.mHeroBarFill, {
                         width: progressAnim.interpolate({
                           inputRange: [0, 1],
                           outputRange: ['0%', '100%'],
                         }),
                       }]} />
                     </View>
-                    <Text style={[styles.modalHeroProgress, { color: colors.subtext, marginTop: 8 }]}>
+                    <Text style={[styles.mHeroProgress, { color: colors.subtext }]}>
                       {XP} / {LEVELS[currentLevel + 1].xp.toLocaleString()} XP
                     </Text>
-                    <Text style={[styles.modalHeroMilestone, { color: '#1a56db', marginTop: 6 }]}>
-                      Next: {LEVELS[currentLevel + 1].icon} {LEVELS[currentLevel + 1].name}
+                    <Text style={[styles.mHeroMilestone, { color: COLORS.blue }]}>
+                      Next: {LEVELS[currentLevel + 1].name}
                     </Text>
                   </>
                 ) : (
-                  <Text style={[styles.modalHeroProgress, { color: '#ff9600', fontWeight: '800' }]}>
+                  <Text style={[styles.mHeroProgress, { color: COLORS.gold, fontWeight: '800' }]}>
                     Max level reached!
                   </Text>
                 )}
@@ -365,76 +474,74 @@ export default function HomeScreen() {
             </View>
 
             <TouchableOpacity
-              style={styles.modalCta}
+              style={[styles.mCta, SHADOW_CTA]}
               onPress={() => setShowLevels(false)}
               activeOpacity={0.85}
             >
-              <Text style={styles.modalCtaText}>
-                {XP === 0 ? 'Begin First Lesson' : 'Continue Learning'}
-              </Text>
+              <Text style={styles.mCtaText}>{globalCompleted > 0 ? 'Continue Learning' : 'Start Learning'}</Text>
             </TouchableOpacity>
 
-            <ScrollView style={styles.levelsList} showsVerticalScrollIndicator={false}>
-              {LEVELS.filter((_, i) => i !== currentLevel).map((level, idx, filtered) => {
+            <ScrollView style={styles.mList} showsVerticalScrollIndicator={false}>
+              {LEVELS.filter((_, i) => i !== currentLevel).map((level, levelIdx, filtered) => {
                 const origIdx = LEVELS.indexOf(level);
                 const isReached = XP >= level.xp;
                 const isNext = origIdx === currentLevel + 1;
                 const isLocked = !isReached && !isNext;
-                const showConnector = idx > 0;
-                const prevItem = idx > 0 ? filtered[idx - 1] : null;
+                const showConnector = levelIdx > 0;
+                const prevItem = levelIdx > 0 ? filtered[levelIdx - 1] : null;
                 const prevReached = prevItem ? XP >= prevItem.xp : false;
-                const connectorColor = prevReached && isReached ? '#1a56db'
+                const connectorColor = prevReached && isReached ? COLORS.blue
                   : prevReached ? '#bfdbfe' : colors.border;
 
                 return (
                   <View key={origIdx}>
                     {showConnector && (
-                      <View style={styles.connectorWrap}>
-                        <View style={[styles.connector, { backgroundColor: connectorColor }]} />
+                      <View style={styles.mConnWrap}>
+                        <View style={[styles.mConn, { backgroundColor: connectorColor }]} />
                       </View>
                     )}
                     <View style={[
-                      styles.levelRow,
-                      isNext && styles.levelRowNext,
-                      isLocked && styles.levelRowLocked,
+                      styles.mRow,
+                      isNext && styles.mRowNext,
+                      isLocked && styles.mRowLocked,
                     ]}>
                       <View style={[
-                        styles.levelBadge,
-                        isReached && styles.levelBadgeReached,
-                        isNext && styles.levelBadgeNext,
-                        isLocked && styles.levelBadgeLocked,
+                        styles.mBadge,
+                        isReached && styles.mBadgeReached,
+                        isNext && styles.mBadgeNext,
+                        isLocked && styles.mBadgeLocked,
                       ]}>
                         {isLocked ? (
-                          <Text style={styles.levelLockIcon}>🔒</Text>
+                          <Ionicons name="lock-closed" size={13} color="#bbb" />
                         ) : (
-                          <Text style={styles.levelBadgeIcon}>{level.icon}</Text>
+                          <LevelBadge index={origIdx} size={17} color={isNext ? COLORS.orange : isReached ? COLORS.blue : '#888'} />
                         )}
                       </View>
-                      <View style={styles.levelInfo}>
+                      <View style={styles.mInfo}>
                         <Text style={[
-                          styles.levelName,
+                          styles.mName,
                           { color: isLocked ? colors.subtext : isNext ? '#e07800' : colors.text },
                           isNext && { fontWeight: '800' },
                         ]}>
                           {level.name}
                         </Text>
                         {isNext ? (
-                          <Text style={[styles.levelXpText, { color: '#ff9600' }]}>
+                          <Text style={[styles.mXp, { color: COLORS.orange }]}>
                             {level.unlock}  ·  Earn {level.xp.toLocaleString()} XP
                           </Text>
                         ) : isLocked ? (
-                          <Text style={[styles.levelXpText, { color: colors.subtext }]}>
+                          <Text style={[styles.mXp, { color: colors.subtext }]}>
                             {level.xp.toLocaleString()} XP  ·  {level.unlock}
                           </Text>
                         ) : (
-                          <Text style={[styles.levelXpText, { color: '#1a56db' }]}>
+                          <Text style={[styles.mXp, { color: COLORS.blue }]}>
                             {level.xp.toLocaleString()} XP
                           </Text>
                         )}
                       </View>
                       {isReached && (
-                        <View style={styles.checkCircle}>
-                          <Text style={styles.checkText}>✓</Text>
+                        <View style={styles.mCheck}>
+                          <Ionicons name="checkmark" size={14} color="#fff" />
                         </View>
                       )}
                     </View>
@@ -452,210 +559,235 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  scrollContent: { flex: 1 },
+  scrollContainer: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 20, gap: 10 },
 
-  // ===== STATUS BAR =====
-  statusBar: {
+  // ═══════ HERO (gradient) ═══════
+  heroBlock: {
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  heroGreeting: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.6)', marginBottom: 1 },
+  heroHeadline: { fontSize: 18, fontWeight: '900', lineHeight: 22, color: '#fff', marginBottom: 8 },
+  heroSubline: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.5)' },
+  heroBarTrack: { height: 5, borderRadius: 3, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.18)', marginBottom: 8 },
+  heroBarFill: { height: 5, borderRadius: 3, backgroundColor: '#fff' },
+  heroMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  heroRankRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  heroRankBadge: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  heroRankText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  heroNextBtn: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  heroNextText: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.6)' },
+
+  // ═══════ CTA CARD ═══════
+  ctaCard: {
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 14,
+  },
+  ctaLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 3 },
+  ctaTitle: { fontSize: 19, fontWeight: '900', marginBottom: 8 },
+  ctaChips: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  chip: { flexDirection: 'row', alignItems: 'center', borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 },
+  chipText: { fontSize: 11, fontWeight: '700' },
+  ctaButton: {
+    backgroundColor: COLORS.blue,
+    borderRadius: CTA.borderRadius,
+    height: CTA.height - 8,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    gap: 6,
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: COLORS.blueDark,
   },
-  statusChip: {
+  ctaButtonText: { fontSize: 15, fontWeight: '700', color: '#fff', letterSpacing: 0.3 },
+
+  // ═══════ STREAK ═══════
+  streakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 11,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 9,
+  },
+  streakIconWrap: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: 'rgba(224, 120, 0, 0.18)',
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  streakTitle: { fontSize: 13, fontWeight: '900', color: '#9a3412' },
+  streakSub: { fontSize: 10, fontWeight: '600', color: '#b45309', marginTop: 1 },
+  streakBadge: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: 'rgba(180, 83, 9, 0.1)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  // ═══════ QUICK ACTIONS ═══════
+  quickRow: { flexDirection: 'row', gap: 7 },
+  quickBtn: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  quickIconWrap: {
+    width: 28, height: 28, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  quickLabel: { fontSize: 11, fontWeight: '700' },
+
+  // ═══════ JOURNEY PREVIEW ═══════
+  journeySection: { gap: 0, marginTop: -2 },
+  journeyTitle: { fontSize: 15, fontWeight: '900', color: COLORS.blue, marginBottom: 6, letterSpacing: 0.2 },
+
+  jCurrent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  jCurrentBadge: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center',
+  },
+  jCurrentName: { fontSize: 14, fontWeight: '800' },
+  jMiniBar: { height: 3, borderRadius: 2, overflow: 'hidden' },
+  jMiniBarFill: { height: 3, borderRadius: 2, backgroundColor: COLORS.blue },
+  jXpLabel: { fontSize: 10, fontWeight: '600', marginTop: 2 },
+
+  // Active connector (current → next) — blue top fading to grey
+  jConnector: { height: 10, paddingLeft: 27, justifyContent: 'center' },
+  jConnectorActive: { width: 3, height: 5, borderRadius: 1.5, position: 'absolute', left: 27, top: 0 },
+  jConnectorFade: { width: 3, height: 5, borderRadius: 1.5, position: 'absolute', left: 27, bottom: 0, opacity: 0.4 },
+  jConnectorLine: { width: 2, height: 6, borderRadius: 1 },
+  jConnectorShort: { height: 6, paddingLeft: 27, justifyContent: 'center' },
+
+  jNextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 10,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderWidth: 1.5,
+  },
+  jSmallBadge: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5,
+  },
+  jNextName: { fontSize: 13, fontWeight: '700', color: '#e07800' },
+  jNextSub: { fontSize: 10, fontWeight: '600', color: '#c06800' },
+
+  jLockedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    opacity: 0.35,
+  },
+  jLockedName: { fontSize: 12, fontWeight: '600' },
+
+  viewAllBtn: {
+    marginTop: 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: COLORS.blueLight,
   },
-  statusIcon: { fontSize: 14 },
-  statusVal: { fontSize: 14, fontWeight: '900' },
-  statusLabel: { fontSize: 11, fontWeight: '600' },
+  viewAllText: { fontSize: 12, fontWeight: '700' },
 
-  // ===== SCROLL =====
-  scrollContent: { flex: 1 },
-  scrollContainer: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, gap: 16 },
-
-  // ===== IDENTITY CARD =====
-  identityCard: {
-    borderRadius: 18,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  identityRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  avatar: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: '#1a56db',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 3, borderColor: '#1439a8',
-  },
-  avatarTxt: { fontSize: 20, fontWeight: '900', color: '#fff' },
-  identityInfo: { flex: 1 },
-  identityName: { fontSize: 18, fontWeight: '900' },
-  identityLevelRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  identityLevelIcon: { fontSize: 14 },
-  identityLevel: { fontSize: 13, fontWeight: '800' },
-  identityPctBadge: {
-    backgroundColor: '#eff6ff',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  identityPctText: { fontSize: 13, fontWeight: '900', color: '#1a56db' },
-  identityProgress: { marginTop: 12 },
-  identityBar: { height: 6, borderRadius: 3, overflow: 'hidden' },
-  identityBarFill: { height: 6, borderRadius: 3, backgroundColor: '#1a56db' },
-  identityXpText: { fontSize: 11, fontWeight: '600', marginTop: 4 },
-
-  // ===== HERO NEXT ACTION (PRIMARY CTA) =====
-  heroAction: {
-    borderRadius: 20,
-    padding: 20,
-    borderLeftWidth: 5,
-    borderLeftColor: '#ff9600',
-    shadowColor: '#ff9600',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    elevation: 5,
-  },
-  heroActionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  heroActionTarget: { fontSize: 20 },
-  heroActionTitle: { fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
-  heroActionConceptName: { fontSize: 18, fontWeight: '900', marginBottom: 14 },
-  heroActionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
-  },
-  heroActionGridItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#eff6ff',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  heroActionGridIcon: { fontSize: 13 },
-  heroActionGridText: { fontSize: 12, fontWeight: '700' },
-  heroStreakRow: {
-    backgroundColor: 'rgba(255,150,0,0.08)',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-  },
-  heroStreakText: { fontSize: 13, fontWeight: '800', color: '#e07800', textAlign: 'center' },
-
-  // ===== QUICK ACTIONS =====
-  quickActionsRow: { flexDirection: 'row', gap: 10 },
-  quickAction: {
-    flex: 1,
-    alignItems: 'center',
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  quickActionPrimary: {
-    borderWidth: 1.5,
-    borderColor: '#1a56db',
-  },
-  quickActionIcon: { fontSize: 24, marginBottom: 6 },
-  quickActionLabel: { fontSize: 12, fontWeight: '800' },
-  quickActionSub: { fontSize: 10, fontWeight: '600', marginTop: 2 },
-
-  // ===== MODAL =====
+  // ═══════ MODAL ═══════
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalSheet: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 12,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 10,
     paddingBottom: 16,
     paddingHorizontal: 20,
     maxHeight: '85%',
   },
   modalHandle: {
-    width: 40, height: 5, borderRadius: 3,
-    backgroundColor: '#ccc', alignSelf: 'center', marginBottom: 14,
+    width: 36, height: 4, borderRadius: 2,
+    backgroundColor: '#d0d0d0', alignSelf: 'center', marginBottom: 10,
   },
-  modalTitle: { fontSize: 22, fontWeight: '900', textAlign: 'center', marginBottom: 12 },
+  modalTitle: { fontSize: 19, fontWeight: '900', textAlign: 'center', marginBottom: 10 },
 
-  modalHeroCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    borderRadius: 18, padding: 16, marginBottom: 18,
-    borderWidth: 2.5, borderColor: '#1a56db',
-    shadowColor: '#1a56db', shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15, shadowRadius: 12, elevation: 4,
+  mHeroCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 12, padding: 10, marginBottom: 10,
+    borderWidth: 2, borderColor: COLORS.blue,
   },
-  modalHeroBadge: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: '#1a56db', alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#1a56db', shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4, shadowRadius: 10, elevation: 6,
+  mHeroBadge: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center',
   },
-  modalHeroIcon: { fontSize: 28 },
-  modalHeroName: { fontSize: 18, fontWeight: '900' },
-  modalHeroSubtitle: { fontSize: 13, fontWeight: '600', marginTop: 2 },
-  modalHeroBar: { height: 8, borderRadius: 4, overflow: 'hidden', marginTop: 8 },
-  modalHeroBarFill: { height: 8, borderRadius: 4, backgroundColor: '#1a56db' },
-  modalHeroProgress: { fontSize: 12, fontWeight: '600', marginTop: 5 },
-  modalHeroMilestone: { fontSize: 12, fontWeight: '800', marginTop: 3 },
-  modalCta: {
-    backgroundColor: '#1a56db', borderRadius: 14, paddingVertical: 14,
-    alignItems: 'center', marginBottom: 18,
-    borderBottomWidth: 3, borderBottomColor: '#1439a8',
+  mHeroName: { fontSize: 15, fontWeight: '900' },
+  mHeroSub: { fontSize: 11, fontWeight: '600', marginTop: 1 },
+  mHeroBar: { height: 4, borderRadius: 2, overflow: 'hidden' },
+  mHeroBarFill: { height: 4, borderRadius: 2, backgroundColor: COLORS.blue },
+  mHeroProgress: { fontSize: 10, fontWeight: '600', marginTop: 3 },
+  mHeroMilestone: { fontSize: 10, fontWeight: '800', marginTop: 1 },
+  mCta: {
+    backgroundColor: COLORS.blue,
+    borderRadius: CTA.borderRadius,
+    height: CTA.height - 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+    borderBottomWidth: 3,
+    borderBottomColor: COLORS.blueDark,
   },
-  modalCtaText: { fontSize: 15, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
-
-  levelsList: { flexGrow: 0 },
-  connectorWrap: { paddingLeft: 31, height: 28, justifyContent: 'center' },
-  connector: { width: 3, height: 28, borderRadius: 1.5 },
-  levelRow: {
+  mCtaText: { fontSize: 15, fontWeight: '700', color: '#fff', letterSpacing: 0.4 },
+  mList: { flexGrow: 0 },
+  mConnWrap: { paddingLeft: 24, height: 14, justifyContent: 'center' },
+  mConn: { width: 2, height: 14, borderRadius: 1 },
+  mRow: {
     flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 11, paddingHorizontal: 12,
-    borderRadius: 14, gap: 12,
+    paddingVertical: 7, paddingHorizontal: 10,
+    borderRadius: 10, gap: 9,
   },
-  levelRowNext: { borderWidth: 2, borderColor: '#ff9600', backgroundColor: 'rgba(255,150,0,0.08)' },
-  levelRowLocked: { opacity: 0.55 },
-  levelBadge: {
-    width: 42, height: 42, borderRadius: 21,
+  mRowNext: { borderWidth: 1.5, borderColor: COLORS.orange, backgroundColor: COLORS.orangeLight },
+  mRowLocked: { opacity: 0.4 },
+  mBadge: {
+    width: 32, height: 32, borderRadius: 16,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2.5, borderColor: '#ddd', backgroundColor: '#f5f5f5',
+    borderWidth: 2, borderColor: '#ddd', backgroundColor: '#f5f5f5',
   },
-  levelBadgeReached: { backgroundColor: '#e8f0fe', borderColor: '#1a56db' },
-  levelBadgeNext: {
-    backgroundColor: '#fff3e0', borderColor: '#ff9600',
-    shadowColor: '#ff9600', shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3, shadowRadius: 6, elevation: 3,
+  mBadgeReached: { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue },
+  mBadgeNext: { backgroundColor: COLORS.orangeLight, borderColor: COLORS.orange },
+  mBadgeLocked: { backgroundColor: '#eee', borderColor: '#ccc' },
+  mInfo: { flex: 1, gap: 0 },
+  mName: { fontSize: 13, fontWeight: '700' },
+  mXp: { fontSize: 10, fontWeight: '600' },
+  mCheck: {
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center',
   },
-  levelBadgeLocked: { backgroundColor: '#eee', borderColor: '#ccc' },
-  levelBadgeIcon: { fontSize: 20 },
-  levelLockIcon: { fontSize: 13, opacity: 0.6 },
-  levelInfo: { flex: 1, gap: 2 },
-  levelName: { fontSize: 14, fontWeight: '700' },
-  levelXpText: { fontSize: 12, fontWeight: '600' },
-  checkCircle: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: '#1a56db', alignItems: 'center', justifyContent: 'center',
-  },
-  checkText: { fontSize: 13, fontWeight: '900', color: '#fff' },
 });

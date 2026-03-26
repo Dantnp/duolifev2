@@ -130,7 +130,7 @@ export default function HomeScreen() {
               >
                 {isLocked && <View style={styles.lockOverlay} />}
                 <View style={[styles.sectionIconBg, { backgroundColor: section.color + '22' }]}>
-                  <Text style={styles.sectionEmoji}>{section.emoji}</Text>
+                  <Text style={styles.sectionEmoji}>{section.icon}</Text>
                 </View>
                 <Text style={styles.sectionTitle}>{section.title}</Text>
                 <Text style={styles.sectionCount}>{section.totalQuestions} questions</Text>

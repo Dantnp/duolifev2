@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,15 +10,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../types';
-import { whatIsUKSection } from '../data/whatIsUK';
-import { valuesAndPrinciplesSection } from '../data/valuesAndPrinciples';
-import { historyOfUKSection } from '../data/historyOfUK';
-import { modernSocietySection } from '../data/modernSociety';
-import { governmentAndLawSection } from '../data/governmentAndLaw';
-import { markConceptComplete } from '../store/progress';
+import { sectionDataMap as sectionData } from '../data/sectionDataMap';
+import { markConceptComplete, getXP, XP_PER_CONCEPT } from '../store/progress';
 import { sections as sectionsList } from '../data/sections';
-import { useTheme } from '../context/ThemeContext';
+import {
+  useTheme, COLORS, ANSWER, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_FEEDBACK,
+  CARD, CTA, SP, btnStyles,
+} from '../context/ThemeContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'SectionQuiz'>;
@@ -28,28 +28,73 @@ type Props = {
 type Phase = 'lesson' | 'quiz' | 'passed' | 'failed';
 type AnswerState = 'unanswered' | 'correct' | 'wrong';
 
-const sectionData: Record<number, typeof whatIsUKSection> = {
-  1: whatIsUKSection,
-  2: valuesAndPrinciplesSection,
-  3: historyOfUKSection,
-  4: modernSocietySection,
-  5: governmentAndLawSection,
+
+// Level hints for progression
+const SECTION_LEVEL_HINT: Record<number, string> = {
+  1: 'Visitor',
+  2: 'Resident',
+  3: 'History Learner',
+  4: 'Culture Aware',
+  5: 'Civic Participant',
 };
 
 export default function SectionQuizScreen({ navigation, route }: Props) {
   const { sectionId, conceptIndex } = route.params;
   const section = sectionData[sectionId];
-  const concept = section.concepts[conceptIndex];
   const { colors } = useTheme();
+  const concept = section?.concepts?.[conceptIndex];
 
   const [phase, setPhase] = useState<Phase>('lesson');
   const [questionIndex, setQuestionIndex] = useState(0);
   const [wrongCount, setWrongCount] = useState(0);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [answerState, setAnswerState] = useState<AnswerState>('unanswered');
+  const [xpBefore] = useState(getXP());
+
   const shakeAnim = useRef(new Animated.Value(0)).current;
+  const feedbackAnim = useRef(new Animated.Value(0)).current;
+  const maxOptions = Math.max(...(concept?.questions?.map(q => q.options.length) ?? [4]));
+  const optionScales = useRef(Array.from({ length: maxOptions }, () => new Animated.Value(1))).current;
+  const xpCountAnim = useRef(new Animated.Value(0)).current;
+  const resultFadeAnim = useRef(new Animated.Value(0)).current;
+
+  if (!section || !concept) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg, alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={{ color: colors.text, fontSize: 16 }}>Content not found</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 16 }}>
+          <Text style={{ color: COLORS.blue, fontSize: 15, fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
 
   const question = concept.questions[questionIndex];
+
+  // Reset option scales when question changes
+  useEffect(() => {
+    optionScales.forEach(s => s.setValue(1));
+  }, [questionIndex]);
+
+  // Animate result screen entry
+  useEffect(() => {
+    if (phase === 'passed' || phase === 'failed') {
+      resultFadeAnim.setValue(0);
+      Animated.timing(resultFadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }).start();
+    }
+    if (phase === 'passed') {
+      xpCountAnim.setValue(0);
+      Animated.timing(xpCountAnim, {
+        toValue: XP_PER_CONCEPT,
+        duration: 800,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [phase]);
 
   function resetQuiz() {
     setQuestionIndex(0);
@@ -62,6 +107,12 @@ export default function SectionQuizScreen({ navigation, route }: Props) {
   function handleSelect(index: number) {
     if (answerState !== 'unanswered') return;
     setSelectedIndex(index);
+
+    // Bounce animation on the selected option
+    Animated.sequence([
+      Animated.timing(optionScales[index], { toValue: 0.96, duration: 80, useNativeDriver: true }),
+      Animated.spring(optionScales[index], { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 12 }),
+    ]).start();
 
     if (index === question.correctIndex) {
       setAnswerState('correct');
@@ -76,11 +127,12 @@ export default function SectionQuizScreen({ navigation, route }: Props) {
         Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
       ]).start();
     }
+    feedbackAnim.setValue(0);
+    Animated.spring(feedbackAnim, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 4 }).start();
   }
 
   function handleNext() {
     const isLastQuestion = questionIndex + 1 >= concept.questions.length;
-
     if (!isLastQuestion) {
       setQuestionIndex(q => q + 1);
       setSelectedIndex(null);
@@ -95,122 +147,187 @@ export default function SectionQuizScreen({ navigation, route }: Props) {
     }
   }
 
-  // ─── Lesson phase ────────────────────────────────────────────────────────
+  function getOptionStyle(index: number) {
+    if (answerState === 'unanswered') {
+      return [styles.option, { backgroundColor: colors.card, borderColor: colors.borderCard }];
+    }
+    if (index === question.correctIndex) {
+      return [styles.option, { borderColor: ANSWER.correct.border, backgroundColor: ANSWER.correct.bg, borderWidth: 2.5 }];
+    }
+    if (index === selectedIndex && answerState === 'wrong') {
+      return [styles.option, { borderColor: ANSWER.wrong.border + '80', backgroundColor: ANSWER.wrong.bg, borderWidth: 1.5 }];
+    }
+    return [styles.option, { backgroundColor: colors.card, borderColor: colors.borderCard, opacity: 0.4 }];
+  }
+
+  function getOptionTextStyle(index: number) {
+    if (answerState === 'unanswered') return [styles.optionText, { color: colors.bodyText }];
+    if (index === question.correctIndex) return [styles.optionText, { color: ANSWER.correct.text, fontWeight: '700' as const }];
+    if (index === selectedIndex && answerState === 'wrong') return [styles.optionText, { color: ANSWER.wrong.text }];
+    return [styles.optionText, { color: colors.subtext }];
+  }
+
+  function getStatusIcon(index: number) {
+    if (answerState === 'unanswered') return null;
+    if (index === question.correctIndex) return (
+      <View style={[styles.statusBadge, { backgroundColor: COLORS.green }]}>
+        <Ionicons name="checkmark" size={12} color="#fff" />
+      </View>
+    );
+    if (index === selectedIndex && answerState === 'wrong') return (
+      <View style={[styles.statusBadge, { backgroundColor: COLORS.red + '90' }]}>
+        <Ionicons name="close" size={12} color="#fff" />
+      </View>
+    );
+    return null;
+  }
+
+  // ─── Lesson phase ───
   if (phase === 'lesson') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
-
         <View style={[styles.header, { borderBottomColor: colors.border }]}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text style={[styles.backIcon, { color: colors.backIcon }]}>←</Text>
+            <Ionicons name="arrow-back" size={22} color={colors.backIcon} />
           </TouchableOpacity>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Learn</Text>
           <View style={{ width: 40 }} />
         </View>
 
         <ScrollView contentContainerStyle={styles.lessonScroll} showsVerticalScrollIndicator={false}>
-          <View style={[styles.sectionBadge, { backgroundColor: section.color + '22' }]}>
-            <Text style={styles.sectionBadgeEmoji}>{section.emoji}</Text>
+          <View style={[styles.sectionBadge, { backgroundColor: section.color + '18' }]}>
+            <Ionicons name={section.icon as any} size={14} color={section.color} />
             <Text style={[styles.sectionBadgeText, { color: section.color }]}>{section.title}</Text>
           </View>
 
           <Text style={[styles.conceptName, { color: colors.text }]}>{concept.name}</Text>
 
-          <View style={[styles.textCard, { backgroundColor: colors.cardAlt, borderColor: '#e0eeff' }]}>
+          {/* Explanation — calmer card */}
+          <View style={[styles.textCard, { backgroundColor: colors.card, borderColor: colors.borderCard }]}>
             <View style={styles.cardIconRow}>
-              <Text style={styles.cardIcon}>📖</Text>
-              <Text style={styles.cardLabel}>EXPLANATION</Text>
+              <View style={[styles.iconContainer, { backgroundColor: COLORS.blueLight }]}>
+                <Ionicons name="book-outline" size={16} color={COLORS.blue} />
+              </View>
+              <Text style={[styles.cardLabel, { color: COLORS.blue }]}>EXPLANATION</Text>
             </View>
             <Text style={[styles.conceptText, { color: colors.bodyText }]}>{concept.text}</Text>
           </View>
 
-          <View style={[styles.memoryCard, { backgroundColor: colors.cardAlt2, borderColor: '#ffe8a0' }]}>
+          {/* Memory trigger — more visual emphasis */}
+          <View style={[styles.memoryCard, { backgroundColor: COLORS.orangeLight, borderColor: COLORS.orange + '30' }]}>
             <View style={styles.cardIconRow}>
-              <Text style={styles.cardIcon}>💡</Text>
-              <Text style={[styles.cardLabel, { color: '#FF9600' }]}>MEMORY TRIGGER</Text>
+              <View style={[styles.iconContainer, { backgroundColor: '#fff' }]}>
+                <Ionicons name="bulb-outline" size={16} color={COLORS.orange} />
+              </View>
+              <Text style={[styles.cardLabel, { color: COLORS.orangeDark }]}>MEMORY TRIGGER</Text>
             </View>
-            <Text style={[styles.memoryText, { color: colors.bodyText }]}>"{concept.memoryTrigger}"</Text>
+            <Text style={[styles.memoryText, { color: colors.text }]}>"{concept.memoryTrigger}"</Text>
           </View>
 
-          <View style={[styles.rulesBox, { backgroundColor: colors.cardAlt, borderColor: '#bfdbfe' }]}>
-            <Text style={[styles.rulesText, { color: colors.accentText }]}>
-              ✅ Answer all {concept.questions.length} questions correctly to unlock the next concept
-            </Text>
+          {/* Progress-based quiz prompt */}
+          <View style={[styles.rulesBox, { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue + '20' }]}>
+            <View style={styles.rulesRow}>
+              <View style={styles.rulesProgress}>
+                <Text style={[styles.rulesProgressText, { color: COLORS.blue }]}>0/{concept.questions.length}</Text>
+              </View>
+              <Text style={[styles.rulesText, { color: COLORS.blue }]}>
+                Answer all {concept.questions.length} questions correctly to unlock the next concept
+              </Text>
+            </View>
           </View>
 
           <View style={{ height: 100 }} />
         </ScrollView>
 
         <View style={[styles.footer, { backgroundColor: colors.screenBg }]}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={() => setPhase('quiz')} activeOpacity={0.85}>
-            <Text style={styles.primaryBtnText}>START QUESTIONS</Text>
-            <Text style={styles.primaryBtnArrow}>→</Text>
+          <TouchableOpacity style={[btnStyles.primary, SHADOW_CTA_LOCAL]} onPress={() => setPhase('quiz')} activeOpacity={0.85}>
+            <Text style={btnStyles.primaryText}>Start Quiz →</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // ─── Passed phase ────────────────────────────────────────────────────────
+  // ─── Passed phase ───
   if (phase === 'passed') {
     const isLastConcept = conceptIndex + 1 >= section.concepts.length;
     const nextSectionIndex = sectionsList.findIndex(s => s.id === sectionId) + 1;
     const nextSection = nextSectionIndex < sectionsList.length ? sectionsList[nextSectionIndex] : null;
+    const levelHint = SECTION_LEVEL_HINT[sectionId];
 
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
-
-        <View style={styles.resultContent}>
-          <Text style={styles.resultEmoji}>{isLastConcept ? '🏆' : '🎉'}</Text>
+        <Animated.View style={[styles.resultContent, { opacity: resultFadeAnim }]}>
+          <View style={[styles.resultIconWrap, { backgroundColor: isLastConcept ? COLORS.goldLight : COLORS.greenLight }]}>
+            <Ionicons name={isLastConcept ? 'trophy' : 'checkmark-circle'} size={40} color={isLastConcept ? COLORS.gold : COLORS.green} />
+          </View>
           <Text style={[styles.resultTitle, { color: colors.text }]}>
             {isLastConcept ? 'Congrats!' : 'Perfect!'}
           </Text>
           <Text style={[styles.resultSubtitle, { color: colors.bodyText }]}>
             {isLastConcept
               ? `You completed "${section.title}"!`
-              : `All ${concept.questions.length} questions correct!`}
+              : `All ${concept.questions.length} questions correct`}
           </Text>
-          {isLastConcept && nextSection ? (
-            <Text style={[styles.resultConcept, { color: '#1a56db' }]}>
-              🔓 You've unlocked "{nextSection.title}"!
+
+          {/* XP Reward */}
+          <View style={[styles.xpReward, { backgroundColor: COLORS.goldLight }]}>
+            <Ionicons name="star" size={16} color={COLORS.gold} />
+            <Text style={[styles.xpRewardText, { color: COLORS.gold }]}>+{XP_PER_CONCEPT} XP earned</Text>
+          </View>
+
+          {/* Unlock moment */}
+          <View style={[styles.unlockCard, { backgroundColor: colors.card, borderColor: colors.borderCard }]}>
+            <View style={[styles.unlockIcon, { backgroundColor: COLORS.blueLight }]}>
+              <Ionicons name="lock-open" size={18} color={COLORS.blue} />
+            </View>
+            {isLastConcept && nextSection ? (
+              <>
+                <Text style={[styles.unlockLabel, { color: colors.subtext }]}>New section unlocked</Text>
+                <Text style={[styles.unlockName, { color: colors.text }]}>{nextSection.title}</Text>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.unlockLabel, { color: colors.subtext }]}>Concept unlocked</Text>
+                <Text style={[styles.unlockName, { color: colors.text }]}>{concept.name}</Text>
+              </>
+            )}
+          </View>
+
+          {/* Progression hint */}
+          {levelHint && (
+            <Text style={[styles.progressionHint, { color: colors.mutedText }]}>
+              You're one step closer to {levelHint}
             </Text>
-          ) : (
-            <Text style={[styles.resultConcept, { color: colors.accentText }]}>{concept.name} unlocked ✓</Text>
           )}
-        </View>
+        </Animated.View>
+
         <View style={[styles.footer, { backgroundColor: colors.screenBg }]}>
           {!isLastConcept && (
             <TouchableOpacity
-              style={styles.primaryBtn}
-              onPress={() =>
-                navigation.replace('SectionQuiz', {
-                  sectionId,
-                  conceptIndex: conceptIndex + 1,
-                })
-              }
+              style={[btnStyles.primary, SHADOW_CTA_LOCAL]}
+              onPress={() => navigation.replace('SectionQuiz', { sectionId, conceptIndex: conceptIndex + 1 })}
               activeOpacity={0.85}
             >
-              <Text style={styles.primaryBtnText}>NEXT CONCEPT</Text>
-              <Text style={styles.primaryBtnArrow}>→</Text>
+              <Text style={btnStyles.primaryText}>Next Concept →</Text>
             </TouchableOpacity>
           )}
           {isLastConcept && nextSection && (
             <TouchableOpacity
-              style={[styles.primaryBtn, { backgroundColor: nextSection.color, borderBottomColor: nextSection.color + 'aa' }]}
+              style={[btnStyles.primary, SHADOW_CTA_LOCAL]}
               onPress={() => navigation.replace('SectionMap', { sectionId: nextSection.id } as any)}
               activeOpacity={0.85}
             >
-              <Text style={styles.primaryBtnText}>GO TO {nextSection.title.toUpperCase()}</Text>
-              <Text style={styles.primaryBtnArrow}>→</Text>
+              <Text style={btnStyles.primaryText}>Go to {nextSection.title} →</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            style={[styles.secondaryBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }]}
+            style={[btnStyles.secondary]}
             onPress={() => navigation.goBack()}
             activeOpacity={0.85}
           >
-            <Text style={[styles.secondaryBtnText, { color: colors.bodyText }]}>
-              {isLastConcept ? 'BACK TO SECTIONS' : 'BACK TO CONCEPTS'}
+            <Text style={btnStyles.secondaryText}>
+              {isLastConcept ? 'Back to Sections' : 'Back to Concepts'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -218,255 +335,302 @@ export default function SectionQuizScreen({ navigation, route }: Props) {
     );
   }
 
-  // ─── Failed phase ────────────────────────────────────────────────────────
+  // ─── Failed phase ───
   if (phase === 'failed') {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
-
-        <View style={styles.resultContent}>
-          <Text style={styles.resultEmoji}>💪</Text>
-          <Text style={[styles.resultTitle, { color: colors.text }]}>Not quite!</Text>
+        <Animated.View style={[styles.resultContent, { opacity: resultFadeAnim }]}>
+          <View style={[styles.resultIconWrap, { backgroundColor: COLORS.orangeLight }]}>
+            <Ionicons name="reload" size={40} color={COLORS.orange} />
+          </View>
+          <Text style={[styles.resultTitle, { color: colors.text }]}>Almost there!</Text>
           <Text style={[styles.resultSubtitle, { color: colors.bodyText }]}>
-            You need all {concept.questions.length} correct to proceed.
+            You missed {wrongCount} {wrongCount === 1 ? 'question' : 'questions'} — try again to unlock the next concept
           </Text>
-          <Text style={[styles.resultConcept, { color: colors.subtext }]}>Review the lesson and try again.</Text>
-        </View>
+        </Animated.View>
         <View style={[styles.footer, { backgroundColor: colors.screenBg }]}>
-          <TouchableOpacity style={styles.primaryBtn} onPress={resetQuiz} activeOpacity={0.85}>
-            <Text style={styles.primaryBtnText}>TRY AGAIN</Text>
+          <TouchableOpacity style={[btnStyles.primary, SHADOW_CTA_LOCAL]} onPress={resetQuiz} activeOpacity={0.85}>
+            <Text style={btnStyles.primaryText}>Try Again</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.secondaryBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }]}
-            onPress={() => {
-              setQuestionIndex(0);
-              setWrongCount(0);
-              setSelectedIndex(null);
-              setAnswerState('unanswered');
-              setPhase('lesson');
-            }}
+            style={btnStyles.secondary}
+            onPress={() => { setQuestionIndex(0); setWrongCount(0); setSelectedIndex(null); setAnswerState('unanswered'); setPhase('lesson'); }}
             activeOpacity={0.85}
           >
-            <Text style={[styles.secondaryBtnText, { color: colors.bodyText }]}>REVIEW LESSON</Text>
+            <Text style={btnStyles.secondaryText}>Review Lesson</Text>
           </TouchableOpacity>
+          <Text style={[styles.reviewHint, { color: colors.mutedText }]}>Refresh the key points before retrying</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // ─── Quiz phase ──────────────────────────────────────────────────────────
+  // ─── Quiz phase ───
   const isLastQuestion = questionIndex + 1 >= concept.questions.length;
-
-  function getOptionStyle(index: number) {
-    if (answerState === 'unanswered') return [styles.option, { backgroundColor: colors.card, borderColor: colors.borderCard }];
-    if (index === question.correctIndex) return [styles.option, styles.optionCorrect];
-    if (index === selectedIndex && answerState === 'wrong') return [styles.option, styles.optionWrong];
-    return [styles.option, { backgroundColor: colors.card, borderColor: colors.borderCard, opacity: 0.5 }];
-  }
-
-  function getOptionTextStyle(index: number) {
-    if (answerState === 'unanswered') return [styles.optionText, { color: colors.bodyText }];
-    if (index === question.correctIndex) return [styles.optionText, styles.optionTextCorrect];
-    if (index === selectedIndex && answerState === 'wrong') return [styles.optionText, styles.optionTextWrong];
-    return [styles.optionText, { color: colors.subtext }];
-  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={[styles.backIcon, { color: colors.backIcon }]}>←</Text>
+          <Ionicons name="arrow-back" size={22} color={colors.backIcon} />
         </TouchableOpacity>
-        <View style={styles.quizProgress}>
-          {concept.questions.map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.dot,
-                { backgroundColor: colors.borderCard },
-                i < questionIndex && styles.dotDone,
-                i === questionIndex && styles.dotActive,
-              ]}
-            />
-          ))}
+        <View style={styles.quizProgressHeader}>
+          <View style={styles.dotsRow}>
+            {concept.questions.map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.dot,
+                  { backgroundColor: colors.borderCard },
+                  i < questionIndex && { backgroundColor: COLORS.blue },
+                  i === questionIndex && styles.dotActive,
+                ]}
+              />
+            ))}
+          </View>
+          <Text style={[styles.questionCounter, { color: colors.subtext }]}>
+            Question {questionIndex + 1} of {concept.questions.length}
+          </Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
 
       <View style={styles.quizConceptChip}>
         <Text style={[styles.quizConceptChipText, { color: section.color }]}>{concept.name}</Text>
-        <Text style={[styles.quizConceptChipSub, { color: colors.subtext }]}>Q{questionIndex + 1} / {concept.questions.length}</Text>
       </View>
 
-      <Animated.View style={[styles.questionCard, { backgroundColor: colors.cardAlt, borderColor: '#e0eeff' }, { transform: [{ translateX: shakeAnim }] }]}>
+      <Animated.View style={[styles.questionCard, { backgroundColor: colors.card, borderColor: colors.borderCard }, { transform: [{ translateX: shakeAnim }] }]}>
         <Text style={[styles.questionText, { color: colors.text }]}>{question.question}</Text>
       </Animated.View>
 
       <View style={styles.optionsContainer}>
         {question.options.map((option, index) => (
-          <TouchableOpacity
-            key={index}
-            style={getOptionStyle(index)}
-            onPress={() => handleSelect(index)}
-            activeOpacity={0.8}
-            disabled={answerState !== 'unanswered'}
-          >
-            <View style={[styles.optionLetter, { backgroundColor: colors.inputBg }]}>
-              <Text style={[styles.optionLetterText, { color: colors.bodyText }]}>{['A', 'B', 'C', 'D'][index]}</Text>
-            </View>
-            <Text style={getOptionTextStyle(index)}>{option}</Text>
-          </TouchableOpacity>
+          <Animated.View key={index} style={{ transform: [{ scale: optionScales[index] }] }}>
+            <TouchableOpacity
+              style={getOptionStyle(index)}
+              onPress={() => handleSelect(index)}
+              activeOpacity={0.8}
+              disabled={answerState !== 'unanswered'}
+            >
+              <View style={[
+                styles.optionLetter,
+                { backgroundColor: colors.inputBg },
+                answerState !== 'unanswered' && index === question.correctIndex && { backgroundColor: COLORS.greenLight },
+                answerState === 'wrong' && index === selectedIndex && { backgroundColor: COLORS.redLight },
+              ]}>
+                <Text style={[
+                  styles.optionLetterText,
+                  { color: colors.bodyText },
+                  answerState !== 'unanswered' && index === question.correctIndex && { color: COLORS.greenDark },
+                  answerState === 'wrong' && index === selectedIndex && { color: COLORS.redDark },
+                ]}>{['A', 'B', 'C', 'D'][index]}</Text>
+              </View>
+              <Text style={getOptionTextStyle(index)}>{option}</Text>
+              {getStatusIcon(index)}
+            </TouchableOpacity>
+          </Animated.View>
         ))}
       </View>
 
       {answerState !== 'unanswered' && (
-        <View style={[styles.feedbackBar, answerState === 'correct' ? styles.feedbackCorrect : styles.feedbackWrong]}>
+        <Animated.View style={[
+          styles.feedbackBar,
+          { backgroundColor: answerState === 'correct' ? COLORS.greenLight : '#fff' },
+          SHADOW_FEEDBACK,
+          { transform: [{ translateY: feedbackAnim.interpolate({ inputRange: [0, 1], outputRange: [80, 0] }) }] },
+          { opacity: feedbackAnim },
+        ]}>
           <View style={styles.feedbackLeft}>
-            <Text style={styles.feedbackIcon}>{answerState === 'correct' ? '🎉' : '❌'}</Text>
-            <Text style={styles.feedbackText}>
-              {answerState === 'correct'
-                ? 'Correct!'
-                : `Answer: ${question.options[question.correctIndex]}`}
-            </Text>
+            <View style={[
+              styles.feedbackIconBg,
+              { backgroundColor: answerState === 'correct' ? COLORS.green : COLORS.red + '20' },
+            ]}>
+              <Ionicons
+                name={answerState === 'correct' ? 'checkmark' : 'close'}
+                size={16}
+                color={answerState === 'correct' ? '#fff' : COLORS.red}
+              />
+            </View>
+            <View>
+              <Text style={[styles.feedbackTitle, {
+                color: answerState === 'correct' ? COLORS.greenDark : colors.text,
+              }]}>
+                {answerState === 'correct' ? 'Nice — correct!' : 'Not quite'}
+              </Text>
+              {answerState === 'wrong' && (
+                <Text style={[styles.feedbackAnswer, { color: colors.subtext }]}>
+                  Correct answer: {question.options[question.correctIndex]}
+                </Text>
+              )}
+            </View>
           </View>
-          <TouchableOpacity style={styles.nextBtn} onPress={handleNext}>
-            <Text style={styles.nextBtnText}>{isLastQuestion ? 'FINISH' : 'NEXT'}</Text>
+          <TouchableOpacity style={[btnStyles.primary, styles.nextBtn]} onPress={handleNext}>
+            <Text style={btnStyles.primaryText}>{isLastQuestion ? 'Finish' : 'Next'}</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       )}
     </SafeAreaView>
   );
 }
+
+// Local shadow for CTA (can't import as computed const in StyleSheet)
+const SHADOW_CTA_LOCAL = {
+  shadowColor: COLORS.blueDark,
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.25,
+  shadowRadius: 8,
+  elevation: 6,
+};
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: SP.md,
+    paddingVertical: SP.sm,
     gap: 10,
     borderBottomWidth: 1,
   },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-  backIcon: { fontSize: 22 },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '800' },
+  headerTitle: { flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '600' },
 
-  lessonScroll: { paddingHorizontal: 20, paddingTop: 16 },
+  lessonScroll: { paddingHorizontal: SP.lg, paddingTop: SP.md },
   sectionBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
     borderRadius: 20,
-    paddingHorizontal: 12,
+    paddingHorizontal: SP.sm,
     paddingVertical: 6,
     gap: 6,
-    marginBottom: 16,
+    marginBottom: SP.md,
   },
   sectionBadgeEmoji: { fontSize: 16 },
-  sectionBadgeText: { fontSize: 13, fontWeight: '700' },
-  conceptName: { fontSize: 26, fontWeight: '900', marginBottom: 24 },
+  sectionBadgeText: { fontSize: 13, fontWeight: '600' },
+  conceptName: { fontSize: 26, fontWeight: '800', marginBottom: SP.lg },
+
+  // Lesson cards — calmer, border instead of shadow
   textCard: {
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 14,
-    borderWidth: 1.5,
+    borderRadius: CARD.borderRadius,
+    padding: CARD.padding,
+    marginBottom: SP.sm,
+    borderWidth: 1,
   },
   memoryCard: {
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 16,
-    borderWidth: 1.5,
+    borderRadius: CARD.borderRadius,
+    padding: CARD.padding,
+    marginBottom: SP.sm,
+    borderWidth: 1,
   },
-  cardIconRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  cardIcon: { fontSize: 18 },
-  cardLabel: { fontSize: 10, fontWeight: '800', color: '#1cb0f6', letterSpacing: 1.2 },
-  conceptText: { fontSize: 16, lineHeight: 24, fontWeight: '500' },
-  memoryText: { fontSize: 20, fontWeight: '800', fontStyle: 'italic' },
-  rulesBox: {
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1.5,
-  },
-  rulesText: { fontSize: 13, fontWeight: '600', lineHeight: 20 },
-  footer: { paddingHorizontal: 20, paddingBottom: 24, paddingTop: 8, gap: 10 },
-  primaryBtn: {
-    backgroundColor: '#1a56db',
-    borderRadius: 16,
-    paddingVertical: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    borderBottomWidth: 4,
-    borderBottomColor: '#1439a8',
-    elevation: 4,
-  },
-  primaryBtnText: { fontSize: 17, fontWeight: '900', color: '#fff', letterSpacing: 1 },
-  primaryBtnArrow: { fontSize: 20, color: '#fff' },
-  secondaryBtn: {
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-  },
-  secondaryBtnText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.5 },
+  cardIconRow: { flexDirection: 'row', alignItems: 'center', gap: SP.sm, marginBottom: SP.sm },
+  iconContainer: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  cardIcon: { fontSize: 16 },
+  cardLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
+  conceptText: { fontSize: 15, lineHeight: 24, fontWeight: '400' },
+  memoryText: { fontSize: 20, fontWeight: '800', fontStyle: 'italic', lineHeight: 28 },
 
+  // Rules box with progress indicator
+  rulesBox: {
+    borderRadius: SP.sm,
+    padding: SP.md,
+    borderWidth: 1,
+  },
+  rulesRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rulesProgress: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: COLORS.blue + '15',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  rulesProgressText: { fontSize: 11, fontWeight: '800' },
+  rulesText: { fontSize: 13, fontWeight: '600', lineHeight: 20, flex: 1 },
+  footer: { paddingHorizontal: SP.lg, paddingBottom: SP.xl, paddingTop: SP.xs, gap: SP.sm },
+
+  // Result screens
   resultContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 32,
-    gap: 12,
+    gap: SP.sm,
   },
-  resultEmoji: { fontSize: 80, marginBottom: 8 },
-  resultTitle: { fontSize: 36, fontWeight: '900' },
-  resultSubtitle: { fontSize: 16, textAlign: 'center', lineHeight: 24 },
-  resultConcept: { fontSize: 14, fontWeight: '700', textAlign: 'center' },
+  resultIconWrap: {
+    width: 80, height: 80, borderRadius: 40,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: SP.sm,
+  },
+  resultTitle: { fontSize: 28, fontWeight: '800' },
+  resultSubtitle: { fontSize: 15, textAlign: 'center', lineHeight: 24 },
 
-  quizProgress: {
-    flex: 1,
+  // XP reward chip
+  xpReward: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    gap: 6,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginTop: 4,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  xpRewardText: { fontSize: 15, fontWeight: '800' },
+
+  // Unlock card
+  unlockCard: {
+    alignItems: 'center',
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    width: '100%',
   },
-  dotDone: { backgroundColor: '#1a56db' },
-  dotActive: { backgroundColor: '#1cb0f6', width: 24, borderRadius: 5 },
+  unlockIcon: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 8,
+  },
+  unlockLabel: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  unlockName: { fontSize: 17, fontWeight: '800', marginTop: 2, textAlign: 'center' },
+
+  // Progression hint
+  progressionHint: { fontSize: 12, fontWeight: '500', marginTop: 8 },
+
+  // Review hint (failed screen)
+  reviewHint: { fontSize: 12, fontWeight: '500', textAlign: 'center', marginTop: -4 },
+
+  // Quiz header
+  quizProgressHeader: { flex: 1, alignItems: 'center' },
+  dotsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SP.xs },
+  dot: { width: 10, height: 10, borderRadius: 5 },
+  dotActive: { backgroundColor: COLORS.blue, width: 24, borderRadius: 5 },
+  questionCounter: { fontSize: 10, fontWeight: '600', marginTop: 3 },
+
   quizConceptChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    marginBottom: 12,
+    paddingHorizontal: SP.lg,
+    marginBottom: SP.sm,
   },
-  quizConceptChipText: { fontSize: 13, fontWeight: '800' },
-  quizConceptChipSub: { fontSize: 12, fontWeight: '600' },
+  quizConceptChipText: { fontSize: 13, fontWeight: '700' },
+
+  // Question card — calmer
   questionCard: {
-    borderRadius: 18,
-    padding: 22,
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderWidth: 1.5,
-    minHeight: 100,
+    borderRadius: CARD.borderRadius,
+    padding: SP.lg,
+    marginHorizontal: SP.md,
+    marginBottom: SP.md,
+    minHeight: 90,
     justifyContent: 'center',
+    borderWidth: 1,
   },
-  questionText: { fontSize: 19, fontWeight: '700', lineHeight: 28, textAlign: 'center' },
-  optionsContainer: { paddingHorizontal: 16, flex: 1, gap: 10 },
+  questionText: { fontSize: 17, fontWeight: '700', lineHeight: 26, textAlign: 'center' },
+
+  optionsContainer: { paddingHorizontal: SP.md, flex: 1, gap: 10 },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: CTA.borderRadius,
+    padding: SP.md,
     borderWidth: 2,
-    gap: 12,
+    gap: SP.sm,
   },
-  optionCorrect: { borderColor: '#1a56db', backgroundColor: '#eff6ff' },
-  optionWrong: { borderColor: '#ff4b4b', backgroundColor: '#fff0f0' },
   optionLetter: {
     width: 30,
     height: 30,
@@ -474,30 +638,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  optionLetterText: { fontSize: 13, fontWeight: '800' },
+  optionLetterText: { fontSize: 13, fontWeight: '700' },
   optionText: { fontSize: 15, fontWeight: '600', flex: 1 },
-  optionTextCorrect: { color: '#1a56db' },
-  optionTextWrong: { color: '#ff4b4b' },
+  statusBadge: {
+    width: 22, height: 22, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  // Feedback bar
   feedbackBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderRadius: 18,
-    padding: 16,
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: SP.md,
+    marginTop: SP.sm,
   },
-  feedbackCorrect: { backgroundColor: '#dbeafe' },
-  feedbackWrong: { backgroundColor: '#ffd7d7' },
-  feedbackLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-  feedbackIcon: { fontSize: 20 },
-  feedbackText: { fontSize: 13, fontWeight: '600', color: '#333', flex: 1 },
+  feedbackLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  feedbackIconBg: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  feedbackTitle: { fontSize: 14, fontWeight: '700' },
+  feedbackAnswer: { fontSize: 12, fontWeight: '500', marginTop: 1 },
   nextBtn: {
-    backgroundColor: '#1cb0f6',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 18,
+    height: 44,
+    paddingHorizontal: SP.lg,
+    borderBottomWidth: 3,
   },
-  nextBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
 });
