@@ -10,6 +10,7 @@ import {
   Easing,
   Pressable,
   InteractionManager,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -23,7 +24,7 @@ import { sectionDataMap as allSectionData } from '../data/sectionDataMap';
 let _mockExamsV2: typeof import('../data/mockExamsV2')['mockExamsV2'] | null = null;
 function getMockExams() {
   if (!_mockExamsV2) _mockExamsV2 = require('../data/mockExamsV2').mockExamsV2;
-  return _mockExamsV2;
+  return _mockExamsV2!;
 }
 import { isConceptComplete, isSectionComplete, getXP, getCompletedCount, getStreak } from '../store/progress';
 import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_CTA, COLORS, CARD, CTA, ANIM } from '../context/ThemeContext';
@@ -173,6 +174,16 @@ export default function HomeScreen() {
 
   const estMinutes = Math.max(1, Math.round((questionsInConcept * 20) / 60));
 
+  const navigateToRandomMockExam = () => {
+    const exams = getMockExams();
+    if (exams.length === 0) {
+      Alert.alert('No mock exams available', 'Please update the app content and try again.');
+      return;
+    }
+    const randomExam = exams[Math.floor(Math.random() * exams.length)];
+    navigation.navigate('MockExam', { examId: randomExam.id });
+  };
+
   const goToCurrentLesson = () => {
     if (!isAllComplete && currentConcept) {
       triggerHaptic();
@@ -271,7 +282,7 @@ export default function HomeScreen() {
         {isAllComplete && (
           <TouchableOpacity
             style={[styles.ctaCard, { backgroundColor: colors.card }, SHADOW_CARD]}
-            onPress={() => navigation.navigate('MockExam' as any)}
+            onPress={navigateToRandomMockExam}
             activeOpacity={0.85}
           >
             <Text style={[styles.ctaLabel, { color: colors.subtext }]}>ALL LESSONS COMPLETE</Text>
@@ -381,9 +392,7 @@ export default function HomeScreen() {
             style={[styles.quickBtn, { backgroundColor: COLORS.blueLight, borderColor: 'rgba(30,77,183,0.12)', borderWidth: 1 }, SHADOW_CARD_SM]}
             onPress={() => {
               triggerHaptic();
-              const exams = getMockExams();
-              const randomExam = exams[Math.floor(Math.random() * exams.length)];
-              navigation.navigate('MockExam', { examId: randomExam.id });
+              navigateToRandomMockExam();
             }}
             activeOpacity={0.7}
           >

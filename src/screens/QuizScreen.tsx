@@ -67,7 +67,7 @@ export default function QuizScreen({ navigation, route }: Props) {
 
   function handleNext() {
     if (currentIndex + 1 >= questions.length) {
-      navigation.replace('Results', { score, total: questions.length });
+      navigation.replace('Results', { score, total: questions.length, questions });
     } else {
       setCurrentIndex((i) => i + 1);
       setSelectedIndex(null);

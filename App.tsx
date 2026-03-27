@@ -1,6 +1,7 @@
 import React, { Component, Suspense, lazy, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, StatusBar, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, StatusBar, Text, View } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
+import Constants from 'expo-constants';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -13,7 +14,7 @@ import PracticeScreen from './src/screens/PracticeScreen';
 import ProgressScreen from './src/screens/ProgressScreen';
 import AccountScreen from './src/screens/AccountScreen';
 import { ThemeProvider, useTheme, COLORS } from './src/context/ThemeContext';
-import { loadProgress } from './src/store/progress';
+import { flushProgressToStorage, loadProgress } from './src/store/progress';
 
 // Lazy load screens that aren't visible on initial render
 const SectionMapScreen = lazy(() => import('./src/screens/SectionMapScreen'));
@@ -125,6 +126,29 @@ function AppNavigator() {
   );
 }
 
+function BuildEnvironmentLabel() {
+  const version = Constants.expoConfig?.version ?? '1.0.0';
+  const env = process.env.EXPO_PUBLIC_APP_ENV ?? 'Staging';
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        right: 10,
+        bottom: 12,
+        backgroundColor: 'rgba(15, 23, 42, 0.86)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+      }}
+    >
+      <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>
+        {env} v{version}
+      </Text>
+    </View>
+  );
+}
+
 export default function App() {
   const [ready, setReady] = useState(false);
 
@@ -137,6 +161,17 @@ export default function App() {
     StatusBar.setBarStyle('light-content');
 
     loadProgress().then(() => setReady(true));
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') {
+        void flushProgressToStorage();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+      void flushProgressToStorage();
+    };
   }, []);
 
   if (!ready) {
@@ -152,6 +187,7 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider>
           <AppNavigator />
+          <BuildEnvironmentLabel />
         </ThemeProvider>
       </SafeAreaProvider>
     </ErrorBoundary>

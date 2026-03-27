@@ -292,25 +292,41 @@ function ManageSubscriptionModal({ visible, onClose }: { visible: boolean; onClo
           {!cancelled && !showCancelConfirm && (
             <View style={styles.subActions}>
               <TouchableOpacity
-                style={[styles.subActionBtn, { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard }]}
-                activeOpacity={0.7}
+                style={[
+                  styles.subActionBtn,
+                  { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard },
+                  styles.subActionDisabled,
+                ]}
+                activeOpacity={1}
+                disabled
               >
                 <Ionicons name="swap-horizontal-outline" size={18} color={COLORS.blue} />
                 <View style={styles.subActionContent}>
                   <Text style={[styles.subActionTitle, { color: colors.text }]}>Change Plan</Text>
-                  <Text style={[styles.subActionSub, { color: colors.subtext }]}>Switch between monthly and yearly</Text>
+                  <Text style={[styles.subActionSub, { color: colors.subtext }]}>Coming soon — currently managed in app stores</Text>
+                </View>
+                <View style={styles.comingSoonPill}>
+                  <Text style={styles.comingSoonPillText}>Soon</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.subActionBtn, { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard }]}
-                activeOpacity={0.7}
+                style={[
+                  styles.subActionBtn,
+                  { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard },
+                  styles.subActionDisabled,
+                ]}
+                activeOpacity={1}
+                disabled
               >
                 <Ionicons name="card-outline" size={18} color={COLORS.blue} />
                 <View style={styles.subActionContent}>
                   <Text style={[styles.subActionTitle, { color: colors.text }]}>Update Payment Method</Text>
-                  <Text style={[styles.subActionSub, { color: colors.subtext }]}>Change your card or billing info</Text>
+                  <Text style={[styles.subActionSub, { color: colors.subtext }]}>Coming soon — currently managed in app stores</Text>
+                </View>
+                <View style={styles.comingSoonPill}>
+                  <Text style={styles.comingSoonPillText}>Soon</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
               </TouchableOpacity>
@@ -1100,6 +1116,20 @@ const styles = StyleSheet.create({
   subActionContent: { flex: 1, gap: 2 },
   subActionTitle: { fontSize: 14, fontWeight: '700' },
   subActionSub: { fontSize: 12, fontWeight: '500' },
+  subActionDisabled: { opacity: 0.72 },
+  comingSoonPill: {
+    backgroundColor: 'rgba(30, 77, 183, 0.12)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  comingSoonPillText: {
+    color: COLORS.blue,
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   subCancelAction: { backgroundColor: 'rgba(224,80,80,0.04)' },
 
   subConfirmBox: {

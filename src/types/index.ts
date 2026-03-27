@@ -33,6 +33,6 @@ export type RootStackParamList = {
   SectionMap: { sectionId: number };
   SectionQuiz: { sectionId: number; conceptIndex: number };
   Quiz: { questions?: Question[] };
-  Results: { score: number; total: number };
+  Results: { score: number; total: number; questions?: Question[] };
   MockExam: { examId: number };
 };

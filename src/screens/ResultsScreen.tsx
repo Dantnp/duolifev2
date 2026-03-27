@@ -19,7 +19,7 @@ type Props = {
 };
 
 export default function ResultsScreen({ navigation, route }: Props) {
-  const { score, total } = route.params;
+  const { score, total, questions } = route.params;
   const percentage = Math.round((score / total) * 100);
   const passed = percentage >= 75;
   const { colors } = useTheme();
@@ -82,7 +82,13 @@ export default function ResultsScreen({ navigation, route }: Props) {
       <View style={styles.buttons}>
         <TouchableOpacity
           style={[btnStyles.primary, styles.ctaShadow]}
-          onPress={() => navigation.navigate('Home')}
+          onPress={() => {
+            if (questions?.length) {
+              navigation.replace('Quiz', { questions });
+              return;
+            }
+            navigation.navigate('Home');
+          }}
           activeOpacity={0.85}
         >
           <Text style={btnStyles.primaryText}>Try Again</Text>
