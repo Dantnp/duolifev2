@@ -82,7 +82,7 @@ export default function ResultsScreen({ navigation, route }: Props) {
       <View style={styles.buttons}>
         <TouchableOpacity
           style={[btnStyles.primary, styles.ctaShadow]}
-          onPress={() => navigation.replace('Quiz', {})}
+          onPress={() => navigation.navigate('Home')}
           activeOpacity={0.85}
         >
           <Text style={btnStyles.primaryText}>Try Again</Text>

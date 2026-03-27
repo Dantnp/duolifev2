@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform, StyleSheet, useColorScheme, ViewStyle } from 'react-native';
+import { loadThemePreference, saveThemePreference } from '../store/progress';
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 1. RAW PALETTE — Brand / base colours (numbered scale)
@@ -8,7 +9,7 @@ import { Platform, StyleSheet, useColorScheme, ViewStyle } from 'react-native';
 export const PALETTE = {
   // Blue
   blue100: '#EBF0FF',
-  blue200: 'rgba(30, 77, 183, 0.08)',
+  blue200: 'rgba(30, 77, 183, 0.15)',
   blue500: '#1E4DB7',
   blue700: '#163a91',
 
@@ -23,13 +24,13 @@ export const PALETTE = {
 
   // Green
   green100: '#ECFDF5',
-  green200: 'rgba(46, 204, 113, 0.08)',
+  green200: 'rgba(46, 204, 113, 0.15)',
   green500: '#2ECC71',
   green700: '#27AE60',
 
   // Red
   red100: '#FEF2F2',
-  red200: 'rgba(231, 76, 60, 0.08)',
+  red200: 'rgba(231, 76, 60, 0.12)',
   red500: '#E74C3C',
   red700: '#C0392B',
 
@@ -105,6 +106,59 @@ export const COLORS = {
   redBg: SEMANTIC.dangerBg,
   iconBg: SEMANTIC.iconSurface,
 } as const;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 2b. ANIMATION TIMING — consistent motion across the app
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const ANIM = {
+  /** Tap / press feedback */
+  tapFeedback: 150,
+  /** Screen-to-screen transitions */
+  screenTransition: 280,
+  /** Progress bar fill */
+  progressBar: 300,
+  /** Correct / wrong result reveal */
+  resultFeedback: 350,
+  /** Fade-in for elements */
+  fadeIn: 200,
+  /** Scale on press-down */
+  scalePress: 0.97,
+  /** Scale on option select (pop-up) */
+  scaleSelect: 1.03,
+  /** Shake duration per frame */
+  shakeFrame: 60,
+} as const;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 2c. MEMORY CARD DESIGN TOKENS — the hero learning element
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const MEMORY_CARD = {
+  bg: '#FFF8E1',
+  bgDark: '#2A2518',
+  border: '#FFD54F',
+  accent: '#FFB300',
+  accentDark: '#E65100',
+  iconBg: 'rgba(255, 143, 0, 0.12)',
+  iconBgDark: 'rgba(255, 179, 0, 0.18)',
+  textColor: '#33291A',
+  textColorDark: '#FFE0B2',
+  labelColor: '#E65100',
+  labelColorDark: '#FFB74D',
+  subLabelColor: '#FF8F00',
+} as const;
+
+export const SHADOW_MEMORY: ViewStyle = Platform.select({
+  ios: {
+    shadowColor: '#FFB300',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+  },
+  android: { elevation: 6 },
+  default: {},
+})!;
 
 // ══════════════════════════════════════════════════════════════════════════════
 // 3. RADIUS TOKENS
@@ -608,7 +662,20 @@ const ThemeContext = createContext<ThemeContextType>({
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const [mode, setMode] = useState<ThemeMode>('system');
+  const [mode, setModeState] = useState<ThemeMode>('light');
+
+  useEffect(() => {
+    loadThemePreference().then(saved => {
+      if (saved === 'light' || saved === 'dark' || saved === 'system') {
+        setModeState(saved);
+      }
+    });
+  }, []);
+
+  const setMode = (newMode: ThemeMode) => {
+    setModeState(newMode);
+    saveThemePreference(newMode);
+  };
 
   const isDark =
     mode === 'system'

@@ -12,7 +12,8 @@ import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
 import { questions as defaultQuestions } from '../data/questions';
 import { Ionicons } from '@expo/vector-icons';
-import { useTheme, COLORS, ANSWER, SHADOW_CARD, SHADOW_FEEDBACK, CARD, CTA, SP, PROGRESS, btnStyles } from '../context/ThemeContext';
+import { useTheme, COLORS, ANSWER, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_FEEDBACK, CARD, CTA, SP, PROGRESS, btnStyles } from '../context/ThemeContext';
+
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Quiz'>;
@@ -29,6 +30,7 @@ export default function QuizScreen({ navigation, route }: Props) {
   const [score, setScore] = useState(0);
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const feedbackAnim = useRef(new Animated.Value(0)).current;
+  const optionScales = useRef(Array.from({ length: 4 }, () => new Animated.Value(1))).current;
   const { colors } = useTheme();
 
   const question = questions[currentIndex];
@@ -36,6 +38,13 @@ export default function QuizScreen({ navigation, route }: Props) {
 
   function handleSelect(index: number) {
     if (answerState !== 'unanswered') return;
+
+    // Bounce animation on selection
+    Animated.sequence([
+      Animated.timing(optionScales[index], { toValue: 0.95, duration: 80, useNativeDriver: true }),
+      Animated.spring(optionScales[index], { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 12 }),
+    ]).start();
+
     setSelectedIndex(index);
 
     if (index === question.correctIndex) {
@@ -68,10 +77,10 @@ export default function QuizScreen({ navigation, route }: Props) {
 
   function getOptionStyle(index: number) {
     if (answerState === 'unanswered') {
-      return [styles.option, { backgroundColor: colors.card, borderColor: colors.borderCard }];
+      return [styles.option, { backgroundColor: colors.card, borderColor: colors.borderCard }, SHADOW_CARD_SM];
     }
     if (index === question.correctIndex) {
-      return [styles.option, { borderColor: ANSWER.correct.border, backgroundColor: ANSWER.correct.bg }];
+      return [styles.option, { borderColor: ANSWER.correct.border, backgroundColor: ANSWER.correct.bg }, SHADOW_CARD_SM];
     }
     if (index === selectedIndex && answerState === 'wrong') {
       return [styles.option, { borderColor: ANSWER.wrong.border, backgroundColor: ANSWER.wrong.bg }];
@@ -100,10 +109,10 @@ export default function QuizScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
       <View style={styles.header}>
-        <Text style={[styles.questionCount, { color: colors.subtext }]}>
+        <Text testID="question-counter" style={[styles.questionCount, { color: colors.subtext }]}>
           {currentIndex + 1} / {questions.length}
         </Text>
-        <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+        <View testID="progress-bar" style={[styles.progressBar, { backgroundColor: colors.border }]}>
           <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
         </View>
       </View>
@@ -114,21 +123,33 @@ export default function QuizScreen({ navigation, route }: Props) {
 
       <View style={styles.optionsContainer}>
         {question.options.map((option, index) => (
-          <TouchableOpacity
-            key={index}
-            style={getOptionStyle(index)}
-            onPress={() => handleSelect(index)}
-            activeOpacity={0.8}
-            disabled={answerState !== 'unanswered'}
-          >
-            <View style={[styles.optionLetter, { backgroundColor: colors.inputBg }]}>
-              <Text style={[styles.optionLetterText, { color: colors.bodyText }]}>
-                {['A', 'B', 'C', 'D'][index]}
-              </Text>
-            </View>
-            <Text style={getOptionTextStyle(index)}>{option}</Text>
-            {getStatusIcon(index)}
-          </TouchableOpacity>
+          <Animated.View key={index} style={{ transform: [{ scale: optionScales[index] }] }}>
+            <TouchableOpacity
+              testID={`answer-option-${['a', 'b', 'c', 'd'][index]}`}
+              style={getOptionStyle(index)}
+              onPress={() => handleSelect(index)}
+              activeOpacity={0.8}
+              disabled={answerState !== 'unanswered'}
+            >
+              <View style={[
+                styles.optionLetter,
+                { backgroundColor: colors.inputBg },
+                answerState !== 'unanswered' && index === question.correctIndex && { backgroundColor: COLORS.greenLight },
+                answerState === 'wrong' && index === selectedIndex && { backgroundColor: COLORS.redLight },
+              ]}>
+                <Text style={[
+                  styles.optionLetterText,
+                  { color: colors.bodyText },
+                  answerState !== 'unanswered' && index === question.correctIndex && { color: COLORS.greenDark },
+                  answerState === 'wrong' && index === selectedIndex && { color: COLORS.redDark },
+                ]}>
+                  {['A', 'B', 'C', 'D'][index]}
+                </Text>
+              </View>
+              <Text style={getOptionTextStyle(index)}>{option}</Text>
+              {getStatusIcon(index)}
+            </TouchableOpacity>
+          </Animated.View>
         ))}
       </View>
 
@@ -140,13 +161,20 @@ export default function QuizScreen({ navigation, route }: Props) {
           { transform: [{ translateY: feedbackAnim.interpolate({ inputRange: [0, 1], outputRange: [80, 0] }) }] },
           { opacity: feedbackAnim },
         ]}>
-          <View style={[styles.feedbackIconBg, { backgroundColor: answerState === 'correct' ? COLORS.green : COLORS.red + '20' }]}>
+          <View testID={`feedback-${answerState}`} style={[styles.feedbackIconBg, { backgroundColor: answerState === 'correct' ? COLORS.green : COLORS.red + '20' }]}>
             <Ionicons name={answerState === 'correct' ? 'checkmark' : 'close'} size={16} color={answerState === 'correct' ? '#fff' : COLORS.red} />
           </View>
-          <Text style={[styles.feedbackText, { color: colors.bodyText }]}>
-            {answerState === 'correct' ? 'Correct!' : `Correct answer: ${question.options[question.correctIndex]}`}
-          </Text>
-          <TouchableOpacity style={[btnStyles.primary, styles.nextButton]} onPress={handleNext}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.feedbackText, { color: answerState === 'correct' ? COLORS.greenDark : colors.bodyText }]}>
+              {answerState === 'correct' ? 'Nice — correct!' : 'Almost there'}
+            </Text>
+            {answerState !== 'correct' && (
+              <Text style={[styles.feedbackAnswer, { color: colors.subtext }]}>
+                Correct: {question.options[question.correctIndex]}
+              </Text>
+            )}
+          </View>
+          <TouchableOpacity testID="next-button" style={[btnStyles.primary, styles.nextButton]} onPress={handleNext}>
             <Text style={btnStyles.primaryText}>
               {currentIndex + 1 >= questions.length ? 'FINISH' : 'NEXT'}
             </Text>
@@ -199,7 +227,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   optionsContainer: {
-    flex: 1,
     gap: SP.sm,
   },
   option: {
@@ -256,10 +283,12 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   feedbackText: {
-    flex: 1,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
   },
+  feedbackXpRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  feedbackXpText: { fontSize: 12, fontWeight: '800', color: COLORS.gold },
+  feedbackAnswer: { fontSize: 12, fontWeight: '500', marginTop: 1 },
   nextButton: {
     height: 44,
     paddingHorizontal: SP.lg,

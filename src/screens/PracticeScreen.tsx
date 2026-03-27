@@ -6,21 +6,28 @@ import {
   ScrollView,
   TouchableOpacity,
   Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { mockExams } from '../data/mockExams';
-import { csvMockExams } from '../data/csvMockExams';
-import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_CTA, COLORS, CTA } from '../context/ThemeContext';
+// Lazy-loaded to avoid parsing 3600+ lines on tab mount
+let _mockExamsV2: typeof import('../data/mockExamsV2')['mockExamsV2'] | null = null;
+function getMockExams() {
+  if (!_mockExamsV2) _mockExamsV2 = require('../data/mockExamsV2').mockExamsV2;
+  return _mockExamsV2!;
+}
+import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_CTA, COLORS, CTA, ANIM } from '../context/ThemeContext';
 import { getExamScore, getExamStats } from '../store/progress';
+import { EXAM_PASS_RATE, XP_PER_EXAM_PASS, getPassMark } from '../constants/gameConfig';
 
-const PASS_MARK = 2;
-
-const realExams = mockExams.map(e => ({ ...e, questions: e.questions.slice(0, 3) }));
-const trainingExams = csvMockExams.map(e => ({ ...e, questions: e.questions.slice(0, 3) }));
-const allExams = [...realExams, ...trainingExams];
+// ─── Haptic feedback ───
+let Haptics: any = null;
+try { Haptics = require('expo-haptics'); } catch {}
+function triggerHaptic() {
+  try { Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+}
 
 type Props = {
   navigation: any;
@@ -34,6 +41,7 @@ function usePressScale() {
 }
 
 export default function PracticeScreen({ navigation }: Props) {
+  const allExams = getMockExams();
   const { colors } = useTheme();
   const [, forceUpdate] = useState(0);
 
@@ -71,7 +79,7 @@ export default function PracticeScreen({ navigation }: Props) {
     let lastFailed: { exam: typeof allExams[0]; score: ReturnType<typeof getExamScore> } | null = null;
     for (const exam of allExams) {
       const s = getExamScore(exam.id);
-      if (s && s.last < PASS_MARK) {
+      if (s && s.last < getPassMark(s.total)) {
         if (!lastFailed || s.lastAttemptAt > lastFailed.score!.lastAttemptAt) {
           lastFailed = { exam, score: s };
         }
@@ -85,10 +93,8 @@ export default function PracticeScreen({ navigation }: Props) {
   })();
 
   function getSequentialLabel(exam: typeof allExams[0]) {
-    const realIdx = realExams.findIndex(e => e.id === exam.id);
-    if (realIdx !== -1) return `Simulation ${realIdx + 1}`;
-    const trainIdx = trainingExams.findIndex(e => e.id === exam.id);
-    if (trainIdx !== -1) return `Test ${trainIdx + 1}`;
+    const idx = allExams.findIndex(e => e.id === exam.id);
+    if (idx !== -1) return `Mock Exam ${idx + 1}`;
     return exam.title;
   }
 
@@ -99,8 +105,8 @@ export default function PracticeScreen({ navigation }: Props) {
       if (isRecommended) return { label: 'Current', bg: COLORS.orangeLight, color: COLORS.orangeDark };
       return { label: 'Not started', bg: colors.chipBg, color: colors.mutedText };
     }
-    if (s.best >= PASS_MARK) return { label: 'Passed', bg: COLORS.greenLight, color: COLORS.greenDark };
-    if (s.last < PASS_MARK && s.attempts > 0) return { label: 'Retry', bg: COLORS.redLight, color: COLORS.redDark };
+    if (s.best >= getPassMark(s.total)) return { label: 'Passed', bg: COLORS.greenLight, color: COLORS.greenDark };
+    if (s.last < getPassMark(s.total) && s.attempts > 0) return { label: 'Retry', bg: COLORS.redLight, color: COLORS.redDark };
     return { label: 'In progress', bg: COLORS.blueLight, color: COLORS.blue };
   }
 
@@ -129,7 +135,7 @@ export default function PracticeScreen({ navigation }: Props) {
               </Text>
             ) : (
               <Text style={[styles.examMeta, { color: colors.mutedText }]}>
-                {exam.questions.length} Q · Pass 75% · ~15 min
+                {exam.questions.length} Q · Pass 75% · ~30 min
               </Text>
             )}
           </View>
@@ -212,18 +218,18 @@ export default function PracticeScreen({ navigation }: Props) {
               {continueExam.score && (
                 <Text style={[styles.ctaContext, { color: colors.subtext }]}>
                   Last score: {continueExam.score.last}/{continueExam.score.total}
-                  {continueExam.score.last < PASS_MARK ? ' · retry recommended' : ''}
+                  {continueExam.score.last < getPassMark(continueExam.score.total) ? ' · retry recommended' : ''}
                 </Text>
               )}
 
               <View style={styles.ctaChips}>
                 <View style={[styles.chip, { backgroundColor: COLORS.goldLight }]}>
                   <Ionicons name="star" size={11} color={COLORS.gold} style={{ marginRight: 3 }} />
-                  <Text style={[styles.chipText, { color: COLORS.gold }]}>+300 XP</Text>
+                  <Text style={[styles.chipText, { color: COLORS.gold }]}>+{XP_PER_EXAM_PASS} XP</Text>
                 </View>
                 <View style={[styles.chip, { backgroundColor: colors.chipBg }]}>
                   <Ionicons name="time-outline" size={11} color={colors.bodyText} style={{ marginRight: 3 }} />
-                  <Text style={[styles.chipText, { color: colors.bodyText }]}>~15 min</Text>
+                  <Text style={[styles.chipText, { color: colors.bodyText }]}>~30 min</Text>
                 </View>
               </View>
 
@@ -264,15 +270,10 @@ export default function PracticeScreen({ navigation }: Props) {
           </View>
         </LinearGradient>
 
-        {/* ═══════ 4. REAL TEST SIMULATION ═══════ */}
-        <Text style={[styles.sectionHeading, { color: colors.text }]}>Real Test Simulation</Text>
-        <Text style={[styles.sectionSub, { color: colors.subtext }]}>Full exam conditions · timed · scored</Text>
-        {realExams.map(exam => renderExamCard(exam, 'real'))}
-
-        {/* ═══════ 5. TRAINING EXAMS ═══════ */}
-        <Text style={[styles.sectionHeading, { color: colors.text }]}>Training Exams</Text>
+        {/* ═══════ 4. MOCK EXAMS ═══════ */}
+        <Text testID="practice-screen-heading" style={[styles.sectionHeading, { color: colors.text }]}>Mock Exams</Text>
         <Text style={[styles.sectionSub, { color: colors.subtext }]}>Practice specific topics at your own pace</Text>
-        {trainingExams.map(exam => renderExamCard(exam, 'training'))}
+        {allExams.map(exam => renderExamCard(exam, 'training'))}
 
         {/* ═══════ 6. TIP — Matches Home style ═══════ */}
         <View style={[styles.tipCard, { backgroundColor: colors.card }, SHADOW_CARD_SM]}>

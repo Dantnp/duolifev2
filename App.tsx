@@ -1,5 +1,5 @@
-import React, { Component, useEffect, useRef } from 'react';
-import { AppState, Platform, StatusBar, Text, View } from 'react-native';
+import React, { Component, Suspense, lazy, useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, StatusBar, Text, View } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -12,12 +12,15 @@ import LearnScreen from './src/screens/LearnScreen';
 import PracticeScreen from './src/screens/PracticeScreen';
 import ProgressScreen from './src/screens/ProgressScreen';
 import AccountScreen from './src/screens/AccountScreen';
-import SectionMapScreen from './src/screens/SectionMapScreen';
-import SectionQuizScreen from './src/screens/SectionQuizScreen';
-import QuizScreen from './src/screens/QuizScreen';
-import ResultsScreen from './src/screens/ResultsScreen';
-import MockExamScreen from './src/screens/MockExamScreen';
 import { ThemeProvider, useTheme, COLORS } from './src/context/ThemeContext';
+import { loadProgress } from './src/store/progress';
+
+// Lazy load screens that aren't visible on initial render
+const SectionMapScreen = lazy(() => import('./src/screens/SectionMapScreen'));
+const SectionQuizScreen = lazy(() => import('./src/screens/SectionQuizScreen'));
+const QuizScreen = lazy(() => import('./src/screens/QuizScreen'));
+const ResultsScreen = lazy(() => import('./src/screens/ResultsScreen'));
+const MockExamScreen = lazy(() => import('./src/screens/MockExamScreen'));
 
 class ErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -93,50 +96,56 @@ function HomeTabs() {
   );
 }
 
+function LazyFallback() {
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F7FA' }}>
+      <ActivityIndicator size="small" color={COLORS.blue} />
+    </View>
+  );
+}
+
 function AppNavigator() {
   return (
     <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Home" component={HomeTabs} />
-        <Stack.Screen name="SectionMap" component={SectionMapScreen} />
-        <Stack.Screen name="SectionQuiz" component={SectionQuizScreen} />
-        <Stack.Screen name="Quiz" component={QuizScreen} />
-        <Stack.Screen name="Results" component={ResultsScreen} />
-        <Stack.Screen name="MockExam" component={MockExamScreen} />
-      </Stack.Navigator>
+      <Suspense fallback={<LazyFallback />}>
+        <Stack.Navigator screenOptions={{
+          headerShown: false,
+          animation: 'slide_from_right',
+          animationDuration: 280,
+        }}>
+          <Stack.Screen name="Home" component={HomeTabs} />
+          <Stack.Screen name="SectionMap" component={SectionMapScreen} />
+          <Stack.Screen name="SectionQuiz" component={SectionQuizScreen} options={{ animation: 'fade_from_bottom' }} />
+          <Stack.Screen name="Quiz" component={QuizScreen} />
+          <Stack.Screen name="Results" component={ResultsScreen} options={{ animation: 'fade_from_bottom' }} />
+          <Stack.Screen name="MockExam" component={MockExamScreen} options={{ animation: 'fade_from_bottom' }} />
+        </Stack.Navigator>
+      </Suspense>
     </NavigationContainer>
   );
 }
 
 export default function App() {
-  const appState = useRef(AppState.currentState);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    function hideBars() {
-      if (Platform.OS === 'android') {
-        StatusBar.setTranslucent(true);
-        StatusBar.setBackgroundColor('transparent');
-        try {
-          NavigationBar.setVisibilityAsync('hidden');
-          NavigationBar.setBehaviorAsync('overlay-swipe');
-        } catch (e) {
-          // edge-to-edge mode may not support these
-        }
-      }
-      StatusBar.setBarStyle('light-content');
+    if (Platform.OS === 'android') {
+      StatusBar.setTranslucent(true);
+      StatusBar.setBackgroundColor('transparent');
+      NavigationBar.setVisibilityAsync('hidden').catch(() => {});
     }
+    StatusBar.setBarStyle('light-content');
 
-    hideBars();
-
-    const sub = AppState.addEventListener('change', (nextState) => {
-      if (appState.current.match(/inactive|background/) && nextState === 'active') {
-        hideBars();
-      }
-      appState.current = nextState;
-    });
-
-    return () => sub.remove();
+    loadProgress().then(() => setReady(true));
   }, []);
+
+  if (!ready) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F7FA' }}>
+        <ActivityIndicator size="large" color={COLORS.blue} />
+      </View>
+    );
+  }
 
   return (
     <ErrorBoundary>

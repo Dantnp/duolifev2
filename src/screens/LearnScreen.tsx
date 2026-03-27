@@ -1,14 +1,31 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Animated,
+  Easing,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList, SectionData } from '../types';
 import { sections } from '../data/sections';
-import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, COLORS } from '../context/ThemeContext';
-import { isSectionComplete, getCompletedCount, isConceptComplete } from '../store/progress';
+import {
+  useTheme, SHADOW_CARD, SHADOW_CARD_SM, COLORS, ANIM,
+} from '../context/ThemeContext';
+import { isSectionComplete, getCompletedCount, isConceptComplete, XP_PER_CONCEPT } from '../store/progress';
 import { sectionDataMap } from '../data/sectionDataMap';
+
+// ─── Haptic feedback ───
+let Haptics: any = null;
+try { Haptics = require('expo-haptics'); } catch {}
+function triggerHaptic() {
+  try { Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+}
 
 const DIFFICULTY: Record<number, { label: string; color: string }> = {
   1: { label: 'Beginner', color: '#22c55e' },
@@ -17,8 +34,6 @@ const DIFFICULTY: Record<number, { label: string; color: string }> = {
   4: { label: 'Advanced', color: '#ef4444' },
   5: { label: 'Advanced', color: '#ef4444' },
 };
-
-import { XP_PER_CONCEPT } from '../store/progress';
 
 function isSectionUnlocked(index: number): boolean {
   if (index === 0) return true;
@@ -67,9 +82,40 @@ export default function LearnScreen() {
   const { colors } = useTheme();
   const [, forceUpdate] = useState(0);
 
+  // ─── Animated progress bars per section ───
+  const sectionBarAnims = useRef(sections.map(() => new Animated.Value(0))).current;
+  const totalBarAnim = useRef(new Animated.Value(0)).current;
+
   useFocusEffect(
     useCallback(() => {
       forceUpdate(n => n + 1);
+
+      // Animate total progress
+      const { pct } = getTotalProgress();
+      totalBarAnim.setValue(0);
+      Animated.timing(totalBarAnim, {
+        toValue: pct / 100,
+        duration: 600,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+
+      // Animate each section progress bar
+      sections.forEach((sec, i) => {
+        const data = sectionDataMap[sec.id];
+        if (!data) return;
+        const conceptIds = data.concepts.map(c => c.id);
+        const completed = getCompletedCount(sec.id, conceptIds);
+        const pctVal = data.concepts.length > 0 ? completed / data.concepts.length : 0;
+        sectionBarAnims[i].setValue(0);
+        Animated.timing(sectionBarAnims[i], {
+          toValue: pctVal,
+          duration: ANIM.progressBar + i * 80, // staggered
+          delay: 100 + i * 50,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }).start();
+      });
     }, [])
   );
 
@@ -89,6 +135,7 @@ export default function LearnScreen() {
 
   const goToCurrentLesson = () => {
     if (continuePoint && continueSection) {
+      triggerHaptic();
       navigation.navigate('SectionQuiz', {
         sectionId: continueSection.id,
         conceptIndex: continuePoint.conceptIndex,
@@ -106,7 +153,6 @@ export default function LearnScreen() {
             {totalDone}/{totalConcepts} concepts · {completedSections}/{sections.length} sections
           </Text>
         </View>
-        {/* Overall progress pill */}
         <View style={[styles.headerPill, { backgroundColor: totalPct > 0 ? COLORS.blueLight : colors.chipBg }]}>
           <Text style={[styles.headerPillText, { color: totalPct > 0 ? COLORS.blue : colors.subtext }]}>
             {totalPct}%
@@ -119,15 +165,18 @@ export default function LearnScreen() {
         contentContainerStyle={styles.scrollContainer}
         showsVerticalScrollIndicator={false}
       >
-        {/* ═══════ RESUME CHIP — small, not a full card ═══════ */}
+        {/* ═══════ RESUME CHIP ═══════ */}
         {continuePoint && continueConcept && continueSection && (
           <TouchableOpacity
+            testID="continue-button"
             style={[styles.resumeChip, { backgroundColor: COLORS.blueLight, borderColor: COLORS.blue + '30' }]}
             onPress={goToCurrentLesson}
             activeOpacity={0.8}
           >
             <View style={styles.resumeLeft}>
-              <Ionicons name="play-circle" size={18} color={COLORS.blue} />
+              <View style={styles.resumePlayIcon}>
+                <Ionicons name="play" size={12} color="#fff" />
+              </View>
               <View style={styles.resumeTextWrap}>
                 <Text style={[styles.resumeLabel, { color: COLORS.blue }]}>Resume</Text>
                 <Text style={[styles.resumeName, { color: COLORS.blueDark }]} numberOfLines={1}>
@@ -139,7 +188,7 @@ export default function LearnScreen() {
           </TouchableOpacity>
         )}
 
-        {/* ═══════ ALL SECTIONS — The hero content ═══════ */}
+        {/* ═══════ ALL SECTIONS ═══════ */}
         <Text style={[styles.sectionHeading, { color: colors.text }]}>All Sections</Text>
 
         {sections.map((section, index) => {
@@ -161,14 +210,21 @@ export default function LearnScreen() {
           return (
             <TouchableOpacity
               key={section.id}
+              testID={unlocked ? `learn-card-${section.slug}` : `locked-section-card-${section.slug}`}
               style={[
                 styles.sectionCard,
                 { backgroundColor: colors.card, borderColor: colors.borderCard },
-                isCurrent && { borderColor: COLORS.blue + '40' },
-                isComplete && { borderColor: COLORS.green + '40' },
+                unlocked && SHADOW_CARD_SM,
+                isCurrent && { borderColor: COLORS.blue + '50', borderWidth: 1.5 },
+                isComplete && { borderColor: COLORS.green + '50', borderWidth: 1.5 },
                 !unlocked && (isFirstLocked ? styles.cardLockedNext : styles.cardLockedFar),
               ]}
-              onPress={() => unlocked && navigation.navigate('SectionMap', { sectionId: section.id })}
+              onPress={() => {
+                if (unlocked) {
+                  triggerHaptic();
+                  navigation.navigate('SectionMap', { sectionId: section.id });
+                }
+              }}
               activeOpacity={unlocked ? 0.8 : 1}
             >
               <View style={styles.cardRow}>
@@ -202,17 +258,20 @@ export default function LearnScreen() {
                 {!unlocked && <Ionicons name="lock-closed" size={14} color={colors.mutedText} />}
               </View>
 
-              {/* Progress bar (unlocked, has progress) */}
+              {/* Animated progress bar */}
               {unlocked && totalConceptsInSection > 0 && (
                 <View style={styles.progressSection}>
                   <View style={styles.progressBarRow}>
-                    <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-                      <View style={[styles.progressBarFill, {
-                        width: `${Math.max(sectionPct, sectionPct > 0 ? 3 : 0)}%`,
+                    <View testID={`progress-bar-${section.slug}`} style={[styles.progressBar, { backgroundColor: colors.border }]}>
+                      <Animated.View style={[styles.progressBarFill, {
+                        width: sectionBarAnims[index].interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0%', '100%'],
+                        }),
                         backgroundColor: isComplete ? COLORS.green : section.color,
                       }]} />
                     </View>
-                    <Text style={[styles.progressPct, { color: isComplete ? COLORS.greenDark : section.color }]}>
+                    <Text testID={`progress-count-${section.slug}`} style={[styles.progressPct, { color: isComplete ? COLORS.greenDark : section.color }]}>
                       {completedCount}/{totalConceptsInSection}
                     </Text>
                   </View>
@@ -222,12 +281,21 @@ export default function LearnScreen() {
                 </View>
               )}
 
-              {/* Lock message */}
+              {/* Lock message — teasing, not dead */}
               {!unlocked && (
                 <View style={styles.lockRow}>
-                  <Text style={[styles.lockText, { color: colors.subtext }]}>
-                    Complete {sections[index - 1]?.title} to unlock
-                  </Text>
+                  <View style={styles.lockInfo}>
+                    <Ionicons name="lock-closed" size={12} color={colors.mutedText} style={{ marginRight: 4 }} />
+                    <Text testID={`unlock-message-${section.slug}`} style={[styles.lockText, { color: colors.subtext }]}>
+                      Complete {sections[index - 1]?.title} to unlock
+                    </Text>
+                  </View>
+                  <View style={styles.lockPreview}>
+                    <Ionicons name="layers-outline" size={12} color={colors.mutedText} />
+                    <Text style={[styles.lockPreviewText, { color: colors.mutedText }]}>
+                      {totalConceptsInSection} topics · {sectionXP} XP inside
+                    </Text>
+                  </View>
                 </View>
               )}
             </TouchableOpacity>
@@ -238,7 +306,7 @@ export default function LearnScreen() {
         <Text style={[styles.sectionHeading, { color: colors.text }]}>Tools</Text>
         <View style={styles.quickRow}>
           <TouchableOpacity
-            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }]}
+            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }, SHADOW_CARD_SM]}
             onPress={goToCurrentLesson}
             activeOpacity={0.7}
           >
@@ -249,7 +317,7 @@ export default function LearnScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }]}
+            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }, SHADOW_CARD_SM]}
             onPress={() => {
               if (continueSection && continueSectionData) {
                 const completed = getCompletedCount(continueSection.id, continueSectionData.concepts.map(c => c.id));
@@ -267,7 +335,7 @@ export default function LearnScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }]}
+            style={[styles.quickBtn, { backgroundColor: colors.card, borderColor: colors.borderCard }, SHADOW_CARD_SM]}
             onPress={() => navigation.navigate('MockExam' as any)}
             activeOpacity={0.7}
           >
@@ -308,17 +376,22 @@ const styles = StyleSheet.create({
   },
   headerPillText: { fontSize: 13, fontWeight: '800' },
 
-  // ═══════ RESUME CHIP — compact, not a full card ═══════
+  // ═══════ RESUME CHIP ═══════
   resumeChip: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderRadius: 10,
+    borderRadius: 12,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderWidth: 1,
   },
-  resumeLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  resumeLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  resumePlayIcon: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: COLORS.blue,
+    alignItems: 'center', justifyContent: 'center',
+  },
   resumeTextWrap: { flex: 1 },
   resumeLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   resumeName: { fontSize: 13, fontWeight: '700', marginTop: 1 },
@@ -326,14 +399,14 @@ const styles = StyleSheet.create({
   // ═══════ SECTION HEADING ═══════
   sectionHeading: { fontSize: 15, fontWeight: '900', letterSpacing: 0.2, marginTop: 4 },
 
-  // ═══════ SECTION CARDS ═══════
+  // ═══════ SECTION CARDS — elevated with depth ═══════
   sectionCard: {
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
   },
-  cardLockedNext: { opacity: 0.7 },
-  cardLockedFar: { opacity: 0.45 },
+  cardLockedNext: { opacity: 0.75 },
+  cardLockedFar: { opacity: 0.55 },
   cardRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   iconBg: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   info: { flex: 1 },
@@ -350,16 +423,19 @@ const styles = StyleSheet.create({
   // Progress
   progressSection: { marginTop: 8, paddingLeft: 52 },
   progressBarRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  progressBar: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
-  progressBarFill: { height: 4, borderRadius: 2 },
+  progressBar: { flex: 1, height: 5, borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: 5, borderRadius: 3 },
   progressPct: { fontSize: 11, fontWeight: '800', minWidth: 24 },
   inlineArrow: { fontSize: 12, fontWeight: '800', marginTop: 4 },
 
-  // Lock
-  lockRow: { marginTop: 8, paddingLeft: 52 },
-  lockText: { fontSize: 11, fontWeight: '500' },
+  // Lock — teasing style
+  lockRow: { marginTop: 8, paddingLeft: 52, gap: 4 },
+  lockInfo: { flexDirection: 'row', alignItems: 'center' },
+  lockText: { fontSize: 11, fontWeight: '600' },
+  lockPreview: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  lockPreviewText: { fontSize: 10, fontWeight: '500' },
 
-  // ═══════ QUICK ACTIONS ═══════
+  // ═══════ QUICK ACTIONS — elevated cards ═══════
   quickRow: { flexDirection: 'row', gap: 7 },
   quickBtn: {
     flex: 1,

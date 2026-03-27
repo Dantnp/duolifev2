@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, Switch, TextInput, Alert, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, Switch, TextInput, Alert, LayoutAnimation } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -8,14 +8,11 @@ import { sections } from '../data/sections';
 import { getCompletedCount, isSectionComplete, getXP, getStreak } from '../store/progress';
 import { sectionDataMap } from '../data/sectionDataMap';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  try { UIManager.setLayoutAnimationEnabledExperimental(true); } catch (e) { /* no-op in New Architecture */ }
-}
 
-const USERNAME = 'John Doe';
-const EMAIL = 'john@example.com';
+const USERNAME = 'Learner';
+const EMAIL = '';
 const PLAN = 'Free Explorer';
-const JOINED = 'Member since Jan 2026';
+const JOINED = '';
 
 const PLANS = [
   { name: 'Monthly', price: '£4.99', period: '/month', tag: null },
@@ -79,7 +76,7 @@ function UpgradeModal({ visible, onClose }: { visible: boolean; onClose: () => v
           ))}
         </View>
 
-        <TouchableOpacity style={[styles.subscribeBtn, SHADOW_CTA]} activeOpacity={0.85}>
+        <TouchableOpacity style={[styles.subscribeBtn, SHADOW_CTA]} activeOpacity={0.85} onPress={() => Alert.alert('Coming Soon', 'Premium features will be available in a future update.')}>
           <Text style={styles.subscribeBtnText}>Subscribe — {PLANS[selected].price}{PLANS[selected].period}</Text>
         </TouchableOpacity>
 
@@ -208,6 +205,354 @@ function HelpModal({ visible, onClose }: { visible: boolean; onClose: () => void
   );
 }
 
+/* ── Manage Subscription Modal ── */
+function ManageSubscriptionModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { colors, isDark } = useTheme();
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelled, setCancelled] = useState(false);
+
+  const handleCancel = () => {
+    setCancelling(true);
+    setTimeout(() => {
+      setCancelling(false);
+      setCancelled(true);
+    }, 1200);
+  };
+
+  const handleClose = () => {
+    setShowCancelConfirm(false);
+    onClose();
+  };
+
+  const currentPlan = {
+    name: 'Premium Yearly',
+    price: '£29.99',
+    period: '/year',
+    nextBilling: '15 Jan 2027',
+    startDate: '15 Jan 2026',
+    paymentMethod: 'Visa •••• 4242',
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
+      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
+      <View style={[styles.helpSheet, { backgroundColor: colors.card }]}>
+        <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+
+        <View style={styles.helpHeader}>
+          <Text style={[styles.sheetTitle, { color: colors.text }]}>Manage Subscription</Text>
+          <TouchableOpacity onPress={handleClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Ionicons name="close" size={22} color={colors.subtext} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} style={styles.helpScroll}>
+          {/* Current Plan Card */}
+          <View style={[styles.subPlanCard, { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard }]}>
+            <View style={styles.subPlanHeader}>
+              <View style={styles.subPlanNameRow}>
+                <Text style={[styles.subPlanName, { color: colors.text }]}>{currentPlan.name}</Text>
+                <View style={[styles.subStatusBadge, cancelled ? styles.subStatusCancelled : styles.subStatusActive]}>
+                  <View style={[styles.subStatusDot, { backgroundColor: cancelled ? '#E05050' : COLORS.green }]} />
+                  <Text style={[styles.subStatusText, { color: cancelled ? '#E05050' : COLORS.green }]}>
+                    {cancelled ? 'Cancelled' : 'Active'}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.subPlanPrice, { color: colors.text }]}>
+                {currentPlan.price}<Text style={[styles.subPlanPeriod, { color: colors.subtext }]}>{currentPlan.period}</Text>
+              </Text>
+            </View>
+
+            <View style={[styles.subDivider, { backgroundColor: colors.border }]} />
+
+            <View style={styles.subDetailRows}>
+              <View style={styles.subDetailRow}>
+                <Ionicons name="calendar-outline" size={15} color={colors.subtext} />
+                <Text style={[styles.subDetailLabel, { color: colors.subtext }]}>
+                  {cancelled ? 'Access until' : 'Next billing'}
+                </Text>
+                <Text style={[styles.subDetailValue, { color: colors.text }]}>{currentPlan.nextBilling}</Text>
+              </View>
+              <View style={styles.subDetailRow}>
+                <Ionicons name="time-outline" size={15} color={colors.subtext} />
+                <Text style={[styles.subDetailLabel, { color: colors.subtext }]}>Member since</Text>
+                <Text style={[styles.subDetailValue, { color: colors.text }]}>{currentPlan.startDate}</Text>
+              </View>
+              <View style={styles.subDetailRow}>
+                <Ionicons name="card-outline" size={15} color={colors.subtext} />
+                <Text style={[styles.subDetailLabel, { color: colors.subtext }]}>Payment</Text>
+                <Text style={[styles.subDetailValue, { color: colors.text }]}>{currentPlan.paymentMethod}</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Actions */}
+          {!cancelled && !showCancelConfirm && (
+            <View style={styles.subActions}>
+              <TouchableOpacity
+                style={[styles.subActionBtn, { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="swap-horizontal-outline" size={18} color={COLORS.blue} />
+                <View style={styles.subActionContent}>
+                  <Text style={[styles.subActionTitle, { color: colors.text }]}>Change Plan</Text>
+                  <Text style={[styles.subActionSub, { color: colors.subtext }]}>Switch between monthly and yearly</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.subActionBtn, { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard }]}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="card-outline" size={18} color={COLORS.blue} />
+                <View style={styles.subActionContent}>
+                  <Text style={[styles.subActionTitle, { color: colors.text }]}>Update Payment Method</Text>
+                  <Text style={[styles.subActionSub, { color: colors.subtext }]}>Change your card or billing info</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.subActionBtn, styles.subCancelAction, { borderColor: isDark ? '#3D2020' : '#FDEAEA' }]}
+                activeOpacity={0.7}
+                onPress={() => setShowCancelConfirm(true)}
+              >
+                <Ionicons name="close-circle-outline" size={18} color="#D05050" />
+                <View style={styles.subActionContent}>
+                  <Text style={[styles.subActionTitle, { color: '#D05050' }]}>Cancel Subscription</Text>
+                  <Text style={[styles.subActionSub, { color: colors.subtext }]}>You'll keep access until {currentPlan.nextBilling}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Cancel Confirmation */}
+          {!cancelled && showCancelConfirm && (
+            <View style={[styles.subConfirmBox, { backgroundColor: isDark ? '#2A1A1A' : '#FEF2F2', borderColor: isDark ? '#3D2020' : '#FECACA' }]}>
+              <Ionicons name="warning-outline" size={28} color="#D05050" style={{ alignSelf: 'center', marginBottom: 8 }} />
+              <Text style={[styles.subConfirmTitle, { color: colors.text }]}>Cancel your subscription?</Text>
+              <Text style={[styles.subConfirmDesc, { color: colors.bodyText }]}>
+                You'll lose access to premium features after {currentPlan.nextBilling}. This includes all sections, unlimited quizzes, analytics, and offline access.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.subConfirmCancelBtn, cancelling && { opacity: 0.6 }]}
+                onPress={handleCancel}
+                disabled={cancelling}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.subConfirmCancelText}>
+                  {cancelling ? 'Cancelling...' : 'Yes, Cancel Subscription'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.subConfirmKeepBtn, SHADOW_CTA]}
+                onPress={() => setShowCancelConfirm(false)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.subConfirmKeepText}>Keep My Subscription</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Cancelled State */}
+          {cancelled && (
+            <View style={[styles.subCancelledBox, { backgroundColor: isDark ? '#1A2A1A' : '#F0FDF4', borderColor: isDark ? '#1F3D1F' : '#BBF7D0' }]}>
+              <Ionicons name="checkmark-circle" size={28} color={COLORS.green} style={{ alignSelf: 'center', marginBottom: 8 }} />
+              <Text style={[styles.subConfirmTitle, { color: colors.text }]}>Subscription cancelled</Text>
+              <Text style={[styles.subConfirmDesc, { color: colors.bodyText }]}>
+                You can continue using premium features until {currentPlan.nextBilling}. You can resubscribe anytime.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.subResubBtn, SHADOW_CTA]}
+                activeOpacity={0.85}
+                onPress={() => { setCancelled(false); setShowCancelConfirm(false); }}
+              >
+                <Text style={styles.subResubText}>Resubscribe</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={{ height: 30 }} />
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+/* ── Delete Account Modal ── */
+function DeleteAccountModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const { colors, isDark } = useTheme();
+  const [step, setStep] = useState<'info' | 'confirm' | 'deleted'>('info');
+  const [confirmText, setConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const CONFIRM_WORD = 'DELETE';
+
+  const handleDelete = () => {
+    if (confirmText !== CONFIRM_WORD) {
+      Alert.alert('Confirmation required', `Please type "${CONFIRM_WORD}" to confirm.`);
+      return;
+    }
+    setDeleting(true);
+    setTimeout(() => {
+      setDeleting(false);
+      setStep('deleted');
+    }, 1500);
+  };
+
+  const handleClose = () => {
+    setStep('info');
+    setConfirmText('');
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
+      <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={handleClose} />
+      <View style={[styles.helpSheet, { backgroundColor: colors.card }]}>
+        <View style={[styles.sheetHandle, { backgroundColor: colors.border }]} />
+
+        <View style={styles.helpHeader}>
+          <Text style={[styles.sheetTitle, { color: colors.text }]}>Delete Account</Text>
+          <TouchableOpacity onPress={handleClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Ionicons name="close" size={22} color={colors.subtext} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} style={styles.helpScroll}>
+          {/* Step 1: Info */}
+          {step === 'info' && (
+            <>
+              <View style={[styles.delWarningBanner, { backgroundColor: isDark ? '#2A1A1A' : '#FEF2F2', borderColor: isDark ? '#3D2020' : '#FECACA' }]}>
+                <Ionicons name="alert-circle" size={24} color="#D05050" />
+                <Text style={[styles.delWarningText, { color: colors.bodyText }]}>
+                  This action is permanent and cannot be undone.
+                </Text>
+              </View>
+
+              <Text style={[styles.helpSectionTitle, { color: colors.subtext, marginTop: 20 }]}>WHAT YOU'LL LOSE</Text>
+
+              <View style={[styles.delLoseBox, { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard }]}>
+                {[
+                  { icon: 'book-outline' as const, text: 'All learning progress and quiz history' },
+                  { icon: 'flame-outline' as const, text: 'Your streak and XP data' },
+                  { icon: 'trophy-outline' as const, text: 'Achievements and milestones' },
+                  { icon: 'card-outline' as const, text: 'Active subscription (no refund)' },
+                  { icon: 'person-outline' as const, text: 'Your profile and account data' },
+                ].map((item, i, arr) => (
+                  <View
+                    key={item.text}
+                    style={[
+                      styles.delLoseRow,
+                      i < arr.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+                    ]}
+                  >
+                    <Ionicons name={item.icon} size={17} color="#D05050" />
+                    <Text style={[styles.delLoseText, { color: colors.text }]}>{item.text}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.delContinueBtn]}
+                onPress={() => setStep('confirm')}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.delContinueBtnText}>Continue to Delete</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.delKeepBtn} onPress={handleClose} activeOpacity={0.85}>
+                <Text style={[styles.delKeepBtnText, { color: COLORS.blue }]}>Keep My Account</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* Step 2: Confirm */}
+          {step === 'confirm' && (
+            <View style={[styles.delConfirmBox, { backgroundColor: isDark ? '#2A1A1A' : '#FEF2F2', borderColor: isDark ? '#3D2020' : '#FECACA' }]}>
+              <Ionicons name="warning-outline" size={32} color="#D05050" style={{ alignSelf: 'center', marginBottom: 10 }} />
+              <Text style={[styles.subConfirmTitle, { color: colors.text }]}>Are you absolutely sure?</Text>
+              <Text style={[styles.subConfirmDesc, { color: colors.bodyText }]}>
+                This will permanently delete your account, all progress, and cancel any active subscription. This cannot be reversed.
+              </Text>
+
+              <Text style={[styles.delTypeLabel, { color: colors.subtext }]}>
+                Type <Text style={{ fontWeight: '900', color: '#D05050' }}>{CONFIRM_WORD}</Text> to confirm
+              </Text>
+              <TextInput
+                style={[
+                  styles.delInput,
+                  {
+                    backgroundColor: colors.card,
+                    color: colors.text,
+                    borderColor: confirmText === CONFIRM_WORD ? COLORS.green : colors.border,
+                  },
+                ]}
+                placeholder={CONFIRM_WORD}
+                placeholderTextColor={colors.mutedText}
+                value={confirmText}
+                onChangeText={setConfirmText}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.delFinalBtn,
+                  (confirmText !== CONFIRM_WORD || deleting) && { opacity: 0.45 },
+                ]}
+                onPress={handleDelete}
+                disabled={confirmText !== CONFIRM_WORD || deleting}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="trash" size={16} color="#fff" />
+                <Text style={styles.delFinalBtnText}>
+                  {deleting ? 'Deleting Account...' : 'Permanently Delete Account'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.delKeepBtn, { marginTop: 8 }]}
+                onPress={() => { setStep('info'); setConfirmText(''); }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.delKeepBtnText, { color: COLORS.blue }]}>Go Back</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Step 3: Deleted */}
+          {step === 'deleted' && (
+            <View style={[styles.delDoneBox, { backgroundColor: isDark ? colors.chipBg : '#F5F6F8', borderColor: colors.borderCard }]}>
+              <Ionicons name="checkmark-circle" size={40} color={COLORS.green} style={{ alignSelf: 'center', marginBottom: 10 }} />
+              <Text style={[styles.subConfirmTitle, { color: colors.text }]}>Account Deleted</Text>
+              <Text style={[styles.subConfirmDesc, { color: colors.bodyText }]}>
+                Your account and all associated data have been scheduled for deletion. You will be logged out shortly.
+              </Text>
+              <TouchableOpacity
+                style={[styles.delDoneBtn, SHADOW_CTA]}
+                onPress={handleClose}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.delDoneBtnText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <View style={{ height: 30 }} />
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 /* ── Ionicon row helper ── */
 function IconBadge({ name, color, iconColor }: { name: keyof typeof Ionicons.glyphMap; color: string; iconColor: string }) {
   return (
@@ -239,6 +584,8 @@ function getOverallPct(): number {
 export default function AccountScreen() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showManageSub, setShowManageSub] = useState(false);
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const { isDark, toggleDark, colors } = useTheme();
   const [, forceUpdate] = useState(0);
@@ -258,7 +605,7 @@ export default function AccountScreen() {
 
         {/* ── Header ── */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: colors.text }]}>Account</Text>
+          <Text testID="account-screen-title" style={[styles.title, { color: colors.text }]}>Account</Text>
         </View>
 
         {/* ══════ PROFILE CARD — compact with edit affordance ══════ */}
@@ -400,7 +747,7 @@ export default function AccountScreen() {
         <SectionLabel label="Account" colors={colors} />
 
         <View style={[styles.section, { backgroundColor: colors.card }, SHADOW_CARD_SM]}>
-          <TouchableOpacity style={[styles.row, { borderBottomColor: colors.border }]} activeOpacity={0.7}>
+          <TouchableOpacity style={[styles.row, { borderBottomColor: colors.border }]} activeOpacity={0.7} onPress={() => Alert.alert('Coming Soon', 'Account management will be available in a future update.')}>
             <IconBadge name="card-outline" color={iconBg} iconColor={iconTint} />
             <View style={styles.rowContent}>
               <Text style={[styles.rowLabel, { color: colors.text }]}>Manage Subscription</Text>
@@ -408,7 +755,7 @@ export default function AccountScreen() {
             <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.row, { borderBottomColor: colors.border }]} activeOpacity={0.7}>
+          <TouchableOpacity style={[styles.row, { borderBottomColor: colors.border }]} activeOpacity={0.7} onPress={() => Alert.alert('Coming Soon', 'Account management will be available in a future update.')}>
             <IconBadge name="trash-outline" color={iconBg} iconColor={iconTint} />
             <View style={styles.rowContent}>
               <Text style={[styles.rowLabel, { color: colors.text }]}>Delete Account</Text>
@@ -416,7 +763,7 @@ export default function AccountScreen() {
             <Ionicons name="chevron-forward" size={16} color={colors.mutedText} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} activeOpacity={0.7}>
+          <TouchableOpacity style={[styles.row, { borderBottomWidth: 0 }]} activeOpacity={0.7} onPress={() => Alert.alert('Coming Soon', 'Account management will be available in a future update.')}>
             <IconBadge name="log-out-outline" color={iconBg} iconColor={isDark ? '#E07070' : '#D05050'} />
             <View style={styles.rowContent}>
               <Text style={[styles.rowLabel, { color: '#D05050' }]}>Log Out</Text>
@@ -429,6 +776,8 @@ export default function AccountScreen() {
 
       <UpgradeModal visible={showUpgrade} onClose={() => setShowUpgrade(false)} />
       <HelpModal visible={showHelp} onClose={() => setShowHelp(false)} />
+      <ManageSubscriptionModal visible={showManageSub} onClose={() => setShowManageSub(false)} />
+      <DeleteAccountModal visible={showDeleteAccount} onClose={() => setShowDeleteAccount(false)} />
     </SafeAreaView>
   );
 }
@@ -700,4 +1049,197 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.blueDark,
   },
   sendBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+
+  /* ── Manage Subscription Modal ── */
+  subPlanCard: {
+    borderRadius: CARD.borderRadius,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 16,
+  },
+  subPlanHeader: { gap: 6 },
+  subPlanNameRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  subPlanName: { fontSize: 17, fontWeight: '800' },
+  subStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  subStatusActive: { backgroundColor: 'rgba(52,199,89,0.12)' },
+  subStatusCancelled: { backgroundColor: 'rgba(224,80,80,0.12)' },
+  subStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  subStatusText: { fontSize: 11, fontWeight: '700' },
+  subPlanPrice: { fontSize: 26, fontWeight: '900' },
+  subPlanPeriod: { fontSize: 14, fontWeight: '600' },
+  subDivider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
+  subDetailRows: { gap: 10 },
+  subDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  subDetailLabel: { fontSize: 13, fontWeight: '500', flex: 1 },
+  subDetailValue: { fontSize: 13, fontWeight: '700' },
+
+  subActions: { gap: 8 },
+  subActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: CARD.borderRadius,
+    borderWidth: 1,
+    padding: 14,
+    gap: 12,
+  },
+  subActionContent: { flex: 1, gap: 2 },
+  subActionTitle: { fontSize: 14, fontWeight: '700' },
+  subActionSub: { fontSize: 12, fontWeight: '500' },
+  subCancelAction: { backgroundColor: 'rgba(224,80,80,0.04)' },
+
+  subConfirmBox: {
+    borderRadius: CARD.borderRadius,
+    borderWidth: 1,
+    padding: 20,
+  },
+  subConfirmTitle: { fontSize: 17, fontWeight: '800', textAlign: 'center', marginBottom: 8 },
+  subConfirmDesc: {
+    fontSize: 13,
+    fontWeight: '500',
+    lineHeight: 19,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  subConfirmCancelBtn: {
+    backgroundColor: '#D05050',
+    borderRadius: CTA.borderRadius,
+    height: CTA.height,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: '#A83C3C',
+    marginBottom: 10,
+  },
+  subConfirmCancelText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  subConfirmKeepBtn: {
+    backgroundColor: COLORS.blue,
+    borderRadius: CTA.borderRadius,
+    height: CTA.height,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: COLORS.blueDark,
+  },
+  subConfirmKeepText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+
+  subCancelledBox: {
+    borderRadius: CARD.borderRadius,
+    borderWidth: 1,
+    padding: 20,
+  },
+  subResubBtn: {
+    backgroundColor: COLORS.blue,
+    borderRadius: CTA.borderRadius,
+    height: CTA.height,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: COLORS.blueDark,
+  },
+  subResubText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+
+  /* ── Delete Account Modal ── */
+  delWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: CARD.borderRadius,
+    borderWidth: 1,
+    padding: 14,
+  },
+  delWarningText: { fontSize: 13, fontWeight: '600', flex: 1, lineHeight: 18 },
+
+  delLoseBox: {
+    borderRadius: CARD.borderRadius,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  delLoseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  delLoseText: { fontSize: 14, fontWeight: '600', flex: 1 },
+
+  delContinueBtn: {
+    backgroundColor: '#D05050',
+    borderRadius: CTA.borderRadius,
+    height: CTA.height,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: '#A83C3C',
+    marginBottom: 8,
+  },
+  delContinueBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  delKeepBtn: { alignItems: 'center', paddingVertical: 10 },
+  delKeepBtnText: { fontSize: 15, fontWeight: '700' },
+
+  delConfirmBox: {
+    borderRadius: CARD.borderRadius,
+    borderWidth: 1,
+    padding: 20,
+  },
+  delTypeLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  delInput: {
+    borderWidth: 2,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+    letterSpacing: 4,
+    marginBottom: 16,
+  },
+  delFinalBtn: {
+    backgroundColor: '#D05050',
+    borderRadius: CTA.borderRadius,
+    height: CTA.height,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: '#A83C3C',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  delFinalBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+
+  delDoneBox: {
+    borderRadius: CARD.borderRadius,
+    borderWidth: 1,
+    padding: 20,
+  },
+  delDoneBtn: {
+    backgroundColor: COLORS.blue,
+    borderRadius: CTA.borderRadius,
+    height: CTA.height,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderBottomWidth: 3,
+    borderBottomColor: COLORS.blueDark,
+  },
+  delDoneBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 });

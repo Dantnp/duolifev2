@@ -24,6 +24,7 @@ import {
   getStreak,
 } from '../store/progress';
 import { sectionDataMap } from '../data/sectionDataMap';
+import { LEVELS, LEVEL_ICONS, getCurrentLevel, UNLOCK_SECTIONS_NEEDED, UNLOCK_QUESTIONS_NEEDED } from '../constants/gameConfig';
 
 type IoniconsName = keyof typeof Ionicons.glyphMap;
 
@@ -35,39 +36,6 @@ const SECTION_ICONS: Record<number, IoniconsName> = {
   5: 'business-outline',
 };
 
-const LEVEL_ICONS: IoniconsName[] = [
-  'globe-outline', 'briefcase-outline', 'home-outline', 'people-outline',
-  'compass-outline', 'time-outline', 'color-palette-outline', 'business-outline',
-  'checkmark-circle-outline', 'shield-checkmark-outline', 'ribbon-outline', 'trophy-outline',
-];
-
-const LEVELS = [
-  { name: 'New Arrival', xp: 0 },
-  { name: 'Traveller', xp: 400 },
-  { name: 'Resident', xp: 1200 },
-  { name: 'Community Member', xp: 2400 },
-  { name: 'Local Explorer', xp: 4000 },
-  { name: 'History Learner', xp: 6000 },
-  { name: 'Culture Aware', xp: 8200 },
-  { name: 'UK Insider', xp: 10500 },
-  { name: 'Civic Participant', xp: 13000 },
-  { name: 'Institution Expert', xp: 15500 },
-  { name: 'Exam Ready', xp: 17200 },
-  { name: 'Citizen Master', xp: 18000 },
-];
-
-
-// Unlock thresholds for prediction
-const UNLOCK_SECTIONS_NEEDED = 1;
-const UNLOCK_QUESTIONS_NEEDED = 20;
-
-function getCurrentLevel(xp: number) {
-  let level = 0;
-  for (let i = LEVELS.length - 1; i >= 0; i--) {
-    if (xp >= LEVELS[i].xp) { level = i; break; }
-  }
-  return level;
-}
 
 type StatusInfo = { label: string; color: string; icon: IoniconsName };
 
@@ -231,7 +199,7 @@ export default function ProgressScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Progress</Text>
+        <Text testID="progress-screen-title" style={[styles.headerTitle, { color: colors.text }]}>Progress</Text>
       </View>
 
       <ScrollView

@@ -7,6 +7,9 @@ import {
   ScrollView,
   Modal,
   Animated,
+  Easing,
+  Pressable,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,54 +19,28 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
 import { sections } from '../data/sections';
 import { sectionDataMap as allSectionData } from '../data/sectionDataMap';
+// mockExamsV2 loaded lazily on first use to avoid 3600+ line parse at startup
+let _mockExamsV2: typeof import('../data/mockExamsV2')['mockExamsV2'] | null = null;
+function getMockExams() {
+  if (!_mockExamsV2) _mockExamsV2 = require('../data/mockExamsV2').mockExamsV2;
+  return _mockExamsV2;
+}
 import { isConceptComplete, isSectionComplete, getXP, getCompletedCount, getStreak } from '../store/progress';
-import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_CTA, COLORS, CARD, CTA } from '../context/ThemeContext';
+import { useTheme, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_CTA, COLORS, CARD, CTA, ANIM } from '../context/ThemeContext';
 import { SectionData } from '../types';
+import { LEVELS, LEVEL_ICONS, getCurrentLevel } from '../constants/gameConfig';
+
+// ─── Haptic feedback ───
+let Haptics: any = null;
+try { Haptics = require('expo-haptics'); } catch {}
+function triggerHaptic() {
+  try { Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+}
 
 const TOTAL_CONCEPTS = Object.values(allSectionData).reduce(
   (sum, sd) => sum + sd.concepts.length, 0,
 );
 
-
-// ─── Level icons mapped to Ionicons ───
-type IoniconsName = keyof typeof Ionicons.glyphMap;
-const LEVEL_ICONS: IoniconsName[] = [
-  'globe-outline',         // New Arrival
-  'briefcase-outline',     // Visitor
-  'home-outline',          // Resident
-  'people-outline',        // Community Member
-  'compass-outline',       // Local Explorer
-  'time-outline',          // History Learner
-  'color-palette-outline', // Culture Aware
-  'business-outline',      // UK Insider
-  'checkmark-circle-outline', // Civic Participant
-  'shield-checkmark-outline', // Institution Expert
-  'ribbon-outline',        // Exam Ready
-  'trophy-outline',        // Citizen Master
-];
-
-const LEVELS = [
-  { name: 'New Arrival',        xp: 0,     subtitle: 'Just getting started on your journey', unlock: 'Start learning' },
-  { name: 'Visitor',            xp: 400,   subtitle: 'Getting to know the basics', unlock: 'Complete Section 1' },
-  { name: 'Resident',           xp: 1200,  subtitle: 'Building a foundation of knowledge', unlock: 'Unlock after Section 2' },
-  { name: 'Community Member',   xp: 2400,  subtitle: 'Understanding how people live together', unlock: 'Master values & principles' },
-  { name: 'Local Explorer',     xp: 4000,  subtitle: 'Discovering what makes the UK unique', unlock: 'Explore UK history' },
-  { name: 'History Learner',    xp: 6000,  subtitle: 'Connecting past to present', unlock: 'Dive deeper into history' },
-  { name: 'Culture Aware',      xp: 8200,  subtitle: 'Appreciating traditions and culture', unlock: 'Study modern society' },
-  { name: 'UK Insider',         xp: 10500, subtitle: 'You really know your stuff', unlock: 'Learn about governance' },
-  { name: 'Civic Participant',  xp: 13000, subtitle: 'Ready to engage with civic life', unlock: 'Master government & law' },
-  { name: 'Institution Expert', xp: 15500, subtitle: 'Deep understanding of UK institutions', unlock: 'Complete all sections' },
-  { name: 'Exam Ready',         xp: 17200, subtitle: 'Prepared to pass with confidence', unlock: 'Practice mock exams' },
-  { name: 'Citizen Master',     xp: 18000, subtitle: "You've mastered it all", unlock: 'Achieve full mastery' },
-];
-
-function getCurrentLevel(xp: number) {
-  let level = 0;
-  for (let i = LEVELS.length - 1; i >= 0; i--) {
-    if (xp >= LEVELS[i].xp) { level = i; break; }
-  }
-  return level;
-}
 
 function findCurrentProgress(allData: Record<number, SectionData>) {
   for (let si = 0; si < sections.length; si++) {
@@ -145,6 +122,12 @@ export default function HomeScreen() {
 
   const heroPress = usePressScale();
 
+  // Pre-warm mock exams data in the background so tapping Mock Test is instant
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => { getMockExams(); });
+    return () => task.cancel();
+  }, []);
+
   useEffect(() => {
     if (showLevels && currentLevel < LEVELS.length - 1) {
       progressAnim.setValue(0);
@@ -164,6 +147,7 @@ export default function HomeScreen() {
     Animated.timing(heroBarAnim, {
       toValue: globalPct,
       duration: 900,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     }).start();
 
@@ -191,6 +175,7 @@ export default function HomeScreen() {
 
   const goToCurrentLesson = () => {
     if (!isAllComplete && currentConcept) {
+      triggerHaptic();
       navigation.navigate('SectionQuiz', { sectionId: currentSection.id, conceptIndex: progress.conceptIndex });
     }
   };
@@ -218,14 +203,14 @@ export default function HomeScreen() {
           end={{ x: 1, y: 1 }}
           style={[styles.heroBlock, SHADOW_CARD]}
         >
-          <Text style={styles.heroGreeting}>{getGreeting()}, Dimitris</Text>
+          <Text style={styles.heroGreeting}>{getGreeting()}</Text>
           <Text style={styles.heroHeadline}>
             {heroTitle}
             {'\n'}
             <Text style={styles.heroSubline}>{heroSubline}</Text>
           </Text>
 
-          <View style={styles.heroBarTrack}>
+          <View testID="progress-bar" style={styles.heroBarTrack}>
             <Animated.View style={[styles.heroBarFill, {
               width: heroBarAnim.interpolate({
                 inputRange: [0, 1],
@@ -254,6 +239,7 @@ export default function HomeScreen() {
         {!isAllComplete && currentConcept && (
           <Animated.View style={{ transform: [{ scale: heroPress.scale }, { translateY: ctaBounce }] }}>
             <TouchableOpacity
+              testID="home-start-button"
               style={[styles.ctaCard, { backgroundColor: colors.card }, SHADOW_CARD]}
               onPress={goToCurrentLesson}
               onPressIn={heroPress.onPressIn}
@@ -392,50 +378,51 @@ export default function HomeScreen() {
         {/* ═══════ 5. QUICK ACTIONS — Secondary shortcuts ═══════ */}
         <View style={styles.quickRow}>
           <TouchableOpacity
-            style={[styles.quickBtn, { backgroundColor: colors.card }, SHADOW_CARD_SM]}
-            onPress={goToCurrentLesson}
-            activeOpacity={0.7}
-          >
-            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.blueLight }]}>
-              <Ionicons name="flash" size={14} color={COLORS.blue} />
-            </View>
-            <Text style={[styles.quickLabel, { color: colors.text }]}>Quick Quiz</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.quickBtn, { backgroundColor: colors.card }, SHADOW_CARD_SM]}
+            style={[styles.quickBtn, { backgroundColor: COLORS.blueLight, borderColor: 'rgba(30,77,183,0.12)', borderWidth: 1 }, SHADOW_CARD_SM]}
             onPress={() => {
-              if (currentSectionData && completedInSection > 0) {
-                navigation.navigate('SectionQuiz', { sectionId: currentSection.id, conceptIndex: 0 });
-              }
+              triggerHaptic();
+              const exams = getMockExams();
+              const randomExam = exams[Math.floor(Math.random() * exams.length)];
+              navigation.navigate('MockExam', { examId: randomExam.id });
             }}
             activeOpacity={0.7}
           >
-            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.greenLight }]}>
-              <Ionicons name="refresh" size={14} color={COLORS.green} />
+            <View style={[styles.quickIconWrap, { backgroundColor: 'rgba(30,77,183,0.15)' }]}>
+              <Ionicons name="flash" size={14} color={COLORS.blue} />
             </View>
-            <Text style={[styles.quickLabel, { color: colors.text }]}>Review</Text>
+            <Text style={[styles.quickLabel, { color: COLORS.blue }]}>Mock Test</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.quickBtn, { backgroundColor: colors.card }, SHADOW_CARD_SM]}
+            style={[styles.quickBtn, { backgroundColor: COLORS.greenLight, borderColor: 'rgba(46,204,113,0.15)', borderWidth: 1 }, SHADOW_CARD_SM]}
+            onPress={() => (navigation as any).navigate('AccountTab')}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.quickIconWrap, { backgroundColor: 'rgba(46,204,113,0.18)' }]}>
+              <Ionicons name="settings-outline" size={14} color={COLORS.green} />
+            </View>
+            <Text style={[styles.quickLabel, { color: COLORS.greenDark }]}>Settings</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.quickBtn, { backgroundColor: COLORS.goldLight, borderColor: 'rgba(245,166,35,0.15)', borderWidth: 1 }, SHADOW_CARD_SM]}
             onPress={() => (navigation as any).navigate('ProgressTab')}
             activeOpacity={0.7}
           >
-            <View style={[styles.quickIconWrap, { backgroundColor: COLORS.goldLight }]}>
+            <View style={[styles.quickIconWrap, { backgroundColor: 'rgba(245,166,35,0.18)' }]}>
               <Ionicons name="stats-chart" size={14} color={COLORS.gold} />
             </View>
-            <Text style={[styles.quickLabel, { color: colors.text }]}>Progress</Text>
+            <Text style={[styles.quickLabel, { color: '#b45309' }]}>Progress</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
 
       {/* ═══════ LEVELS MODAL ═══════ */}
       <Modal visible={showLevels} transparent animationType="slide" onRequestClose={() => setShowLevels(false)}>
-        <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setShowLevels(false)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowLevels(false)} />
           <View
             style={[styles.modalSheet, { backgroundColor: colors.card }]}
-            onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHandle} />
             <Text style={[styles.modalTitle, { color: colors.text }]}>Your Journey</Text>
@@ -481,7 +468,7 @@ export default function HomeScreen() {
               <Text style={styles.mCtaText}>{globalCompleted > 0 ? 'Continue Learning' : 'Start Learning'}</Text>
             </TouchableOpacity>
 
-            <ScrollView style={styles.mList} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.mList} showsVerticalScrollIndicator={false} nestedScrollEnabled>
               {LEVELS.filter((_, i) => i !== currentLevel).map((level, levelIdx, filtered) => {
                 const origIdx = LEVELS.indexOf(level);
                 const isReached = XP >= level.xp;
@@ -551,7 +538,7 @@ export default function HomeScreen() {
               <View style={{ height: 24 }} />
             </ScrollView>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -564,10 +551,10 @@ const styles = StyleSheet.create({
 
   // ═══════ HERO (gradient) ═══════
   heroBlock: {
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 10,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 12,
   },
   heroGreeting: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.6)', marginBottom: 1 },
   heroHeadline: { fontSize: 18, fontWeight: '900', lineHeight: 22, color: '#fff', marginBottom: 8 },

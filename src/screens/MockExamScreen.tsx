@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,30 +6,46 @@ import {
   TouchableOpacity,
   ScrollView,
   Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../types';
-import { mockExams } from '../data/mockExams';
-import { csvMockExams } from '../data/csvMockExams';
+// Lazy-loaded to avoid parsing 3600+ lines on screen mount
+let _mockExamsV2: typeof import('../data/mockExamsV2')['mockExamsV2'] | null = null;
+function getMockExams() {
+  if (!_mockExamsV2) _mockExamsV2 = require('../data/mockExamsV2').mockExamsV2;
+  return _mockExamsV2!;
+}
 import {
-  useTheme, COLORS, ANSWER, SHADOW_CARD, SHADOW_FEEDBACK,
-  CARD, CTA, SP, PROGRESS, btnStyles,
+  useTheme, COLORS, ANSWER, SHADOW_CARD, SHADOW_CARD_SM, SHADOW_FEEDBACK,
+  CARD, CTA, SP, PROGRESS, ANIM, btnStyles,
 } from '../context/ThemeContext';
-import { saveExamScore } from '../store/progress';
+import { EXAM_PASS_RATE, XP_PER_EXAM_PASS, getPassMark } from '../constants/gameConfig';
+import { saveExamScore, recordQuestionsAnswered } from '../store/progress';
+
+// ─── Haptic feedback (graceful fallback) ───
+let Haptics: any = null;
+try { Haptics = require('expo-haptics'); } catch {}
+
+function triggerHaptic(type: 'light' | 'medium' | 'success' | 'error' = 'light') {
+  try {
+    if (!Haptics) return;
+    if (type === 'success') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); return; }
+    if (type === 'error') { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error); return; }
+    Haptics.impactAsync(type === 'medium' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
+  } catch {}
+}
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'MockExam'>;
   route: RouteProp<RootStackParamList, 'MockExam'>;
 };
 
-const PASS_MARK = 2;
-const TOTAL = 3;
-const allExams = [...mockExams, ...csvMockExams].map(e => ({ ...e, questions: e.questions.slice(0, 3) }));
-
 export default function MockExamScreen({ navigation, route }: Props) {
+  const allExams = getMockExams();
   const exam = allExams.find(e => e.id === route.params.examId);
   const { colors } = useTheme();
 
@@ -40,7 +56,16 @@ export default function MockExamScreen({ navigation, route }: Props) {
   const [results, setResults] = useState<boolean[]>([]);
   const [phase, setPhase] = useState<'quiz' | 'results'>('quiz');
 
+  // ─── Animations ───
   const shakeAnim = useRef(new Animated.Value(0)).current;
+  const progressBarAnim = useRef(new Animated.Value(0)).current;
+  const feedbackSlide = useRef(new Animated.Value(0)).current;
+  const resultFade = useRef(new Animated.Value(0)).current;
+  const resultScale = useRef(new Animated.Value(0.9)).current;
+  const maxOpts = Math.max(...(exam?.questions?.map(q => q.options.length) ?? [4]));
+  const optionScales = useRef(Array.from({ length: maxOpts }, () => new Animated.Value(1))).current;
+  const confirmOpacity = useRef(new Animated.Value(0)).current;
+  const confirmScale = useRef(new Animated.Value(0.98)).current;
 
   if (!exam) {
     return (
@@ -58,14 +83,60 @@ export default function MockExamScreen({ navigation, route }: Props) {
   const score = results.filter(Boolean).length;
   const requiredSelections = qType === 'multiple' ? (question.correctIndices?.length ?? 2) : 1;
 
+  // ─── Animated progress bar ───
+  useEffect(() => {
+    Animated.timing(progressBarAnim, {
+      toValue: (currentIndex + (answered ? 1 : 0)) / exam.questions.length,
+      duration: ANIM.progressBar,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [currentIndex, answered]);
+
+  // ─── Reset scales on question change ───
+  useEffect(() => {
+    optionScales.forEach(s => s.setValue(1));
+    confirmOpacity.setValue(0);
+    confirmScale.setValue(0.98);
+    feedbackSlide.setValue(0);
+  }, [currentIndex]);
+
+  // ─── Confirm button fade-in for multi-select ───
+  useEffect(() => {
+    if (qType === 'multiple' && selectedMultiple.size === requiredSelections && !answered) {
+      Animated.parallel([
+        Animated.timing(confirmOpacity, { toValue: 1, duration: ANIM.fadeIn, useNativeDriver: true }),
+        Animated.spring(confirmScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 8 }),
+      ]).start();
+      triggerHaptic('light');
+    }
+  }, [selectedMultiple.size, answered]);
+
+  // ─── Results phase animation ───
+  useEffect(() => {
+    if (phase === 'results') {
+      resultFade.setValue(0);
+      resultScale.setValue(0.9);
+      Animated.parallel([
+        Animated.timing(resultFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.spring(resultScale, { toValue: 1, useNativeDriver: true, speed: 12, bounciness: 6 }),
+      ]).start();
+    }
+  }, [phase]);
+
   function shake() {
     Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 6, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -6, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 8, duration: ANIM.shakeFrame, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: ANIM.shakeFrame, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 6, duration: ANIM.shakeFrame, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -6, duration: ANIM.shakeFrame, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: ANIM.shakeFrame, useNativeDriver: true }),
     ]).start();
+  }
+
+  function showFeedback() {
+    feedbackSlide.setValue(0);
+    Animated.spring(feedbackSlide, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 4 }).start();
   }
 
   function isCorrectIndex(index: number): boolean {
@@ -81,15 +152,42 @@ export default function MockExamScreen({ navigation, route }: Props) {
     return selectedSingle === question.correctIndex;
   }
 
+  function animateOption(index: number) {
+    Animated.sequence([
+      Animated.timing(optionScales[index], {
+        toValue: ANIM.scaleSelect,
+        duration: ANIM.tapFeedback,
+        easing: Easing.out(Easing.ease),
+        useNativeDriver: true,
+      }),
+      Animated.timing(optionScales[index], {
+        toValue: 1,
+        duration: 100,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }
+
   function handleSelectSingle(index: number) {
     if (answered) return;
+    animateOption(index);
+    triggerHaptic('light');
     setSelectedSingle(index);
     setAnswered(true);
-    if (index !== question.correctIndex) shake();
+    if (index !== question.correctIndex) {
+      shake();
+      triggerHaptic('error');
+    } else {
+      triggerHaptic('success');
+    }
+    showFeedback();
   }
 
   function handleToggleMultiple(index: number) {
     if (answered) return;
+    animateOption(index);
+    triggerHaptic('light');
     setSelectedMultiple(prev => {
       const next = new Set(prev);
       if (next.has(index)) next.delete(index);
@@ -101,7 +199,13 @@ export default function MockExamScreen({ navigation, route }: Props) {
   function handleConfirmMultiple() {
     if (answered || selectedMultiple.size !== requiredSelections) return;
     setAnswered(true);
-    if (!checkAnswer()) shake();
+    if (!checkAnswer()) {
+      shake();
+      triggerHaptic('error');
+    } else {
+      triggerHaptic('success');
+    }
+    showFeedback();
   }
 
   function handleNext() {
@@ -110,6 +214,7 @@ export default function MockExamScreen({ navigation, route }: Props) {
     if (currentIndex + 1 >= exam!.questions.length) {
       setResults(newResults);
       saveExamScore(exam!.id, newResults.filter(Boolean).length, exam!.questions.length);
+      recordQuestionsAnswered(exam!.questions.length);
       setPhase('results');
     } else {
       setResults(newResults);
@@ -123,30 +228,35 @@ export default function MockExamScreen({ navigation, route }: Props) {
   function handleRestart() {
     setCurrentIndex(0); setSelectedSingle(null); setSelectedMultiple(new Set());
     setAnswered(false); setResults([]); setPhase('quiz');
+    progressBarAnim.setValue(0);
   }
 
-  // ─── Answer option colours (shared logic) ───
   function getAnsweredColors(index: number, isSelected: boolean) {
     if (!answered) {
-      if (isSelected) return { bg: ANSWER.selected.bg, border: ANSWER.selected.border, bottomBorder: COLORS.blueDark, text: ANSWER.selected.text };
-      return { bg: colors.card, border: colors.borderCard, bottomBorder: colors.border, text: colors.bodyText };
+      if (isSelected) return { bg: ANSWER.selected.bg, border: ANSWER.selected.border, bottomBorder: COLORS.blueDark, text: ANSWER.selected.text, shadow: SHADOW_CARD_SM };
+      return { bg: colors.card, border: colors.borderCard, bottomBorder: colors.border, text: colors.bodyText, shadow: {} };
     }
-    if (isCorrectIndex(index)) return { bg: ANSWER.correct.bg, border: ANSWER.correct.border, bottomBorder: COLORS.greenDark, text: ANSWER.correct.text };
-    if (isSelected) return { bg: ANSWER.wrong.bg, border: ANSWER.wrong.border, bottomBorder: COLORS.redDark, text: ANSWER.wrong.text };
-    return { bg: colors.card, border: colors.borderCard, bottomBorder: colors.border, text: colors.mutedText };
+    if (isCorrectIndex(index)) return { bg: ANSWER.correct.bg, border: ANSWER.correct.border, bottomBorder: COLORS.greenDark, text: ANSWER.correct.text, shadow: SHADOW_CARD_SM };
+    if (isSelected) return { bg: ANSWER.wrong.bg, border: ANSWER.wrong.border, bottomBorder: COLORS.redDark, text: ANSWER.wrong.text, shadow: {} };
+    return { bg: colors.card, border: colors.borderCard, bottomBorder: colors.border, text: colors.mutedText, shadow: {} };
   }
 
-  // ─── RESULTS PHASE ───
+  // ═══════════════════════════════════════════════════════════════
+  // RESULTS PHASE
+  // ═══════════════════════════════════════════════════════════════
   if (phase === 'results') {
     const totalQ = exam.questions.length;
-    const passed = score >= PASS_MARK;
+    const passed = score >= getPassMark(totalQ);
     const percentage = Math.round((score / totalQ) * 100);
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
-        <ScrollView contentContainerStyle={styles.resultsScroll}>
+        <Animated.ScrollView
+          contentContainerStyle={styles.resultsScroll}
+          style={{ opacity: resultFade, transform: [{ scale: resultScale }] }}
+        >
           <View style={styles.resultsHeader}>
             <View style={[styles.resultsIconWrap, { backgroundColor: passed ? COLORS.greenLight : COLORS.orangeLight }]}>
-              <Ionicons name={passed ? 'checkmark-circle' : 'book-outline'} size={40} color={passed ? COLORS.green : COLORS.orange} />
+              <Ionicons name={passed ? 'checkmark-circle' : 'book-outline'} size={44} color={passed ? COLORS.green : COLORS.orange} />
             </View>
             <Text style={[styles.resultsTitle, { color: colors.text }]}>
               {passed ? 'Well done!' : 'Keep practising'}
@@ -163,12 +273,20 @@ export default function MockExamScreen({ navigation, route }: Props) {
             <Text style={[styles.passBadgeText, { color: passed ? COLORS.blue : COLORS.red }]}>
               {passed ? '✓ PASSED' : '✗ NOT PASSED'}
             </Text>
-            <Text style={[styles.passMarkText, { color: colors.subtext }]}>Pass mark: {PASS_MARK}/{totalQ} ({Math.round((PASS_MARK / totalQ) * 100)}%)</Text>
+            <Text style={[styles.passMarkText, { color: colors.subtext }]}>Pass mark: {getPassMark(totalQ)}/{totalQ} ({Math.round(EXAM_PASS_RATE * 100)}%)</Text>
           </View>
+
+          {/* XP reward for passing */}
+          {passed && (
+            <View style={[styles.xpChip, { backgroundColor: COLORS.goldLight }]}>
+              <Ionicons name="star" size={16} color={COLORS.gold} />
+              <Text style={[styles.xpChipText, { color: COLORS.gold }]}>+{XP_PER_EXAM_PASS} XP earned</Text>
+            </View>
+          )}
 
           <View style={[styles.statsRow, { backgroundColor: colors.chipBg }]}>
             <View style={styles.statBox}>
-              <Text style={[styles.statNum, { color: colors.text }]}>{score}</Text>
+              <Text style={[styles.statNum, { color: COLORS.green }]}>{score}</Text>
               <Text style={[styles.statLabel, { color: colors.subtext }]}>Correct</Text>
             </View>
             <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
@@ -183,20 +301,20 @@ export default function MockExamScreen({ navigation, route }: Props) {
             </View>
           </View>
 
-          {/* PRIMARY — blue, not the old cyan */}
           <TouchableOpacity style={[btnStyles.primary, styles.fullWidth, styles.ctaShadow]} onPress={handleRestart}>
             <Text style={btnStyles.primaryText}>Try Again</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[btnStyles.secondary, styles.fullWidth, { marginTop: SP.sm }]} onPress={() => navigation.goBack()}>
             <Text style={btnStyles.secondaryText}>Back to Practice</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </Animated.ScrollView>
       </SafeAreaView>
     );
   }
 
-  // ─── QUIZ PHASE ───
-  const progress = (currentIndex / exam.questions.length) * 100;
+  // ═══════════════════════════════════════════════════════════════
+  // QUIZ PHASE
+  // ═══════════════════════════════════════════════════════════════
   const isCorrect = checkAnswer();
 
   function renderBooleanOptions() {
@@ -207,15 +325,16 @@ export default function MockExamScreen({ navigation, route }: Props) {
           const isSel = selectedSingle === index;
           const c = getAnsweredColors(index, isSel);
           return (
-            <TouchableOpacity
-              key={index}
-              style={[styles.booleanBtn, { backgroundColor: c.bg, borderColor: c.border, borderBottomColor: c.bottomBorder }]}
-              onPress={() => handleSelectSingle(index)}
-              activeOpacity={answered ? 1 : 0.7}
-            >
-              <Text style={[styles.booleanIcon, { color: c.text }]}>{isTrue ? '✓' : '✗'}</Text>
-              <Text style={[styles.booleanText, { color: c.text }]}>{option}</Text>
-            </TouchableOpacity>
+            <Animated.View key={index} style={{ flex: 1, transform: [{ scale: optionScales[index] }] }}>
+              <TouchableOpacity
+                style={[styles.booleanBtn, { backgroundColor: c.bg, borderColor: c.border, borderBottomColor: c.bottomBorder }, c.shadow]}
+                onPress={() => handleSelectSingle(index)}
+                activeOpacity={answered ? 1 : 0.7}
+              >
+                <Text style={[styles.booleanIcon, { color: c.text }]}>{isTrue ? '✓' : '✗'}</Text>
+                <Text style={[styles.booleanText, { color: c.text }]}>{option}</Text>
+              </TouchableOpacity>
+            </Animated.View>
           );
         })}
       </View>
@@ -235,19 +354,20 @@ export default function MockExamScreen({ navigation, route }: Props) {
             const isSel = selectedMultiple.has(index);
             const c = getAnsweredColors(index, isSel);
             return (
-              <TouchableOpacity
-                key={index}
-                style={[styles.optionBtn, { backgroundColor: c.bg, borderColor: c.border, borderBottomColor: c.bottomBorder }]}
-                onPress={() => handleToggleMultiple(index)}
-                activeOpacity={answered ? 1 : 0.7}
-              >
-                <View style={[styles.checkbox, { borderColor: c.border, backgroundColor: isSel ? c.border : 'transparent' }]}>
-                  {isSel && <Text style={styles.checkmark}>✓</Text>}
-                </View>
-                <Text style={[styles.optionText, { color: c.text }]}>{option}</Text>
-                {answered && isCorrectIndex(index) && <View style={[styles.statusBadge, { backgroundColor: COLORS.green }]}><Ionicons name="checkmark" size={12} color="#fff" /></View>}
-                {answered && isSel && !isCorrectIndex(index) && <View style={[styles.statusBadge, { backgroundColor: COLORS.red + '90' }]}><Ionicons name="close" size={12} color="#fff" /></View>}
-              </TouchableOpacity>
+              <Animated.View key={index} style={{ transform: [{ scale: optionScales[index] }] }}>
+                <TouchableOpacity
+                  style={[styles.optionBtn, { backgroundColor: c.bg, borderColor: c.border, borderBottomColor: c.bottomBorder }, c.shadow]}
+                  onPress={() => handleToggleMultiple(index)}
+                  activeOpacity={answered ? 1 : 0.7}
+                >
+                  <View style={[styles.checkbox, { borderColor: c.border, backgroundColor: isSel ? c.border : 'transparent' }]}>
+                    {isSel && <Text style={styles.checkmark}>✓</Text>}
+                  </View>
+                  <Text style={[styles.optionText, { color: c.text }]}>{option}</Text>
+                  {answered && isCorrectIndex(index) && <View style={[styles.statusBadge, { backgroundColor: COLORS.green }]}><Ionicons name="checkmark" size={12} color="#fff" /></View>}
+                  {answered && isSel && !isCorrectIndex(index) && <View style={[styles.statusBadge, { backgroundColor: COLORS.red + '90' }]}><Ionicons name="close" size={12} color="#fff" /></View>}
+                </TouchableOpacity>
+              </Animated.View>
             );
           })}
         </View>
@@ -262,19 +382,21 @@ export default function MockExamScreen({ navigation, route }: Props) {
           const isSel = selectedSingle === index;
           const c = getAnsweredColors(index, isSel);
           return (
-            <TouchableOpacity
-              key={index}
-              style={[styles.optionBtn, { backgroundColor: c.bg, borderColor: c.border, borderBottomColor: c.bottomBorder }]}
-              onPress={() => handleSelectSingle(index)}
-              activeOpacity={answered ? 1 : 0.7}
-            >
-              <Text style={[styles.optionLetter, { backgroundColor: colors.inputBg, color: c.text }]}>
-                {String.fromCharCode(65 + index)}
-              </Text>
-              <Text style={[styles.optionText, { color: c.text }]}>{option}</Text>
-              {answered && isCorrectIndex(index) && <View style={[styles.statusBadge, { backgroundColor: COLORS.green }]}><Ionicons name="checkmark" size={12} color="#fff" /></View>}
-              {answered && isSel && !isCorrectIndex(index) && <View style={[styles.statusBadge, { backgroundColor: COLORS.red + '90' }]}><Ionicons name="close" size={12} color="#fff" /></View>}
-            </TouchableOpacity>
+            <Animated.View key={index} style={{ transform: [{ scale: optionScales[index] }] }}>
+              <TouchableOpacity
+                testID={`answer-option-${['a', 'b', 'c', 'd'][index]}`}
+                style={[styles.optionBtn, { backgroundColor: c.bg, borderColor: c.border, borderBottomColor: c.bottomBorder }, c.shadow]}
+                onPress={() => handleSelectSingle(index)}
+                activeOpacity={answered ? 1 : 0.7}
+              >
+                <Text style={[styles.optionLetter, { backgroundColor: colors.inputBg, color: c.text }]}>
+                  {String.fromCharCode(65 + index)}
+                </Text>
+                <Text style={[styles.optionText, { color: c.text }]}>{option}</Text>
+                {answered && isCorrectIndex(index) && <View testID={`feedback-correct-${index}`} style={[styles.statusBadge, { backgroundColor: COLORS.green }]}><Ionicons name="checkmark" size={12} color="#fff" /></View>}
+                {answered && isSel && !isCorrectIndex(index) && <View testID={`feedback-wrong-${index}`} style={[styles.statusBadge, { backgroundColor: COLORS.red + '90' }]}><Ionicons name="close" size={12} color="#fff" /></View>}
+              </TouchableOpacity>
+            </Animated.View>
           );
         })}
       </View>
@@ -286,19 +408,40 @@ export default function MockExamScreen({ navigation, route }: Props) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
+      {/* ─── Header ─── */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity style={styles.backArrow} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color={colors.backIcon} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>{exam.title}</Text>
-        <Text style={[styles.headerCount, { color: colors.subtext }]}>{currentIndex + 1}/{exam.questions.length}</Text>
+        <Text testID="question-counter" style={[styles.headerCount, { color: colors.subtext }]}>{currentIndex + 1}/{exam.questions.length}</Text>
       </View>
 
-      <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
-        <View style={[styles.progressFill, { width: `${progress}%` }]} />
+      {/* ─── Animated progress bar ─── */}
+      <View testID="progress-bar" style={[styles.progressTrack, { backgroundColor: colors.border }]}>
+        <Animated.View style={[styles.progressFill, {
+          width: progressBarAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: ['0%', '100%'],
+          }),
+        }]} />
+      </View>
+      <View style={styles.progressMeta}>
+        <View style={styles.progressDots}>
+          {exam.questions.map((_, i) => (
+            <View
+              key={i}
+              style={[
+                styles.progressDot,
+                { backgroundColor: i < currentIndex ? (results[i] ? COLORS.green : COLORS.red) : i === currentIndex ? COLORS.blue : colors.borderCard },
+              ]}
+            />
+          ))}
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.quizScroll} bounces={false}>
+        {/* ─── Question card with shake ─── */}
         <Animated.View style={[styles.questionCard, { backgroundColor: colors.card }, SHADOW_CARD, { transform: [{ translateX: shakeAnim }] }]}>
           <View style={styles.questionHeaderRow}>
             <Text style={[styles.questionNumber, { color: COLORS.blue }]}>Question {currentIndex + 1}</Text>
@@ -320,30 +463,50 @@ export default function MockExamScreen({ navigation, route }: Props) {
         {qType === 'multiple' && renderMultipleOptions()}
         {qType === 'single' && renderSingleOptions()}
 
-        {answered && question.explanation && (
-          <View style={[styles.feedbackBox, { backgroundColor: isCorrect ? ANSWER.correct.bg : ANSWER.wrong.bg }]}>
-            <View style={[styles.feedbackIconBg, { backgroundColor: isCorrect ? COLORS.green : COLORS.red + '20' }]}>
+        {/* ─── Feedback with slide animation ─── */}
+        {answered && (
+          <Animated.View style={[
+            styles.feedbackBox,
+            { backgroundColor: isCorrect ? ANSWER.correct.bg : ANSWER.wrong.bg },
+            {
+              opacity: feedbackSlide,
+              transform: [{ translateY: feedbackSlide.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+            },
+          ]}>
+            <View testID={isCorrect ? 'feedback-correct' : 'feedback-wrong'} style={[styles.feedbackIconBg, { backgroundColor: isCorrect ? COLORS.green : COLORS.red + '20' }]}>
               <Ionicons name={isCorrect ? 'checkmark' : 'close'} size={16} color={isCorrect ? '#fff' : COLORS.red} />
             </View>
-            <Text style={[styles.feedbackText, { color: colors.bodyText }]}>{question.explanation}</Text>
-          </View>
+            <View style={{ flex: 1 }}>
+              <Text testID="feedback-title" style={[styles.feedbackTitle, { color: isCorrect ? COLORS.greenDark : COLORS.redDark }]}>
+                {isCorrect ? 'Correct!' : 'Not quite right'}
+              </Text>
+              {question.explanation && (
+                <Text testID="feedback-explanation" style={[styles.feedbackExplanation, { color: colors.bodyText }]}>{question.explanation}</Text>
+              )}
+            </View>
+          </Animated.View>
         )}
       </ScrollView>
 
+      {/* ─── Confirm button with fade-in ─── */}
       {showConfirmBtn && (
-        <View style={[styles.nextContainer, { backgroundColor: colors.card }, SHADOW_FEEDBACK]}>
+        <Animated.View style={[
+          styles.nextContainer, { backgroundColor: colors.card }, SHADOW_FEEDBACK,
+          { opacity: confirmOpacity, transform: [{ scale: confirmScale }] },
+        ]}>
           <TouchableOpacity
+            testID="confirm-button"
             style={[btnStyles.primary, { backgroundColor: COLORS.orange, borderBottomColor: COLORS.orangeDark }]}
             onPress={handleConfirmMultiple}
           >
             <Text style={btnStyles.primaryText}>Confirm Answer</Text>
           </TouchableOpacity>
-        </View>
+        </Animated.View>
       )}
 
       {showNextBtn && (
         <View style={[styles.nextContainer, { backgroundColor: colors.card }, SHADOW_FEEDBACK]}>
-          <TouchableOpacity style={[btnStyles.primary, styles.ctaShadow]} onPress={handleNext}>
+          <TouchableOpacity testID="next-button" style={[btnStyles.primary, styles.ctaShadow]} onPress={handleNext}>
             <Text style={btnStyles.primaryText}>
               {currentIndex + 1 === exam.questions.length ? 'See Results' : 'Next'}
             </Text>
@@ -365,12 +528,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   backArrow: { padding: 4, marginRight: SP.xs },
-  backArrowText: { fontSize: 22 },
   headerTitle: { flex: 1, fontSize: 17, fontWeight: '600' },
   headerCount: { fontSize: 14, fontWeight: '600' },
 
   progressTrack: { height: PROGRESS.height },
   progressFill: { height: PROGRESS.height, backgroundColor: COLORS.blue, borderRadius: PROGRESS.borderRadius },
+  progressMeta: { flexDirection: 'row', justifyContent: 'center', paddingVertical: 6 },
+  progressDots: { flexDirection: 'row', gap: 6, alignItems: 'center' },
+  progressDot: { width: 8, height: 8, borderRadius: 4 },
 
   quizScroll: { padding: SP.md, paddingBottom: 100 },
   questionCard: {
@@ -412,7 +577,7 @@ const styles = StyleSheet.create({
 
   booleanContainer: { flexDirection: 'row', gap: SP.sm },
   booleanBtn: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
     borderRadius: CARD.borderRadius, borderWidth: 2, borderBottomWidth: CTA.depthWidth,
     paddingVertical: SP.xl, gap: SP.xs,
   },
@@ -434,11 +599,14 @@ const styles = StyleSheet.create({
     marginTop: SP.md, gap: SP.sm,
   },
   feedbackIconBg: {
-    width: 28, height: 28, borderRadius: 14,
+    width: 30, height: 30, borderRadius: 15,
     alignItems: 'center', justifyContent: 'center',
     marginTop: 1,
   },
-  feedbackText: { flex: 1, fontSize: 14, lineHeight: 20 },
+  feedbackTitle: { fontSize: 15, fontWeight: '800' },
+  feedbackXpRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  feedbackXpText: { fontSize: 13, fontWeight: '900', color: COLORS.gold },
+  feedbackExplanation: { fontSize: 13, lineHeight: 20, marginTop: 4 },
 
   nextContainer: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
@@ -457,11 +625,11 @@ const styles = StyleSheet.create({
   resultsScroll: { padding: SP.xl, alignItems: 'center', paddingBottom: 40 },
   resultsHeader: { alignItems: 'center', marginBottom: SP.xl },
   resultsIconWrap: {
-    width: 72, height: 72, borderRadius: 36,
+    width: 80, height: 80, borderRadius: 40,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: SP.sm,
   },
-  resultsTitle: { fontSize: 26, fontWeight: '700' },
+  resultsTitle: { fontSize: 28, fontWeight: '900' },
   resultsSubtitle: { fontSize: 14, marginTop: 4, fontWeight: '500' },
   scoreCircle: {
     width: 130, height: 130, borderRadius: 65, borderWidth: 6,
@@ -471,10 +639,16 @@ const styles = StyleSheet.create({
   scorePercent: { fontSize: 15, fontWeight: '600' },
   passBadge: {
     borderRadius: CTA.borderRadius, paddingVertical: SP.sm, paddingHorizontal: SP.xl,
-    alignItems: 'center', marginBottom: SP.xl, width: '100%',
+    alignItems: 'center', marginBottom: SP.md, width: '100%',
   },
   passBadgeText: { fontSize: 18, fontWeight: '700', letterSpacing: 1 },
   passMarkText: { fontSize: 12, marginTop: 4, fontWeight: '500' },
+  xpChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8,
+    marginBottom: SP.md,
+  },
+  xpChipText: { fontSize: 15, fontWeight: '900' },
   statsRow: {
     flexDirection: 'row', borderRadius: CARD.borderRadius, padding: SP.lg,
     width: '100%', marginBottom: SP.xl + 4, alignItems: 'center',

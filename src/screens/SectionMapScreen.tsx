@@ -1,10 +1,12 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -14,21 +16,44 @@ import { sectionDataMap } from '../data/sectionDataMap';
 import { isConceptComplete, getCompletedCount } from '../store/progress';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  useTheme, COLORS, SHADOW_CARD_SM, CARD, SP, PROGRESS,
+  useTheme, COLORS, SHADOW_CARD_SM, SHADOW_CARD, CARD, SP, PROGRESS, ANIM,
 } from '../context/ThemeContext';
+
+// ─── Haptic feedback ───
+let Haptics: any = null;
+try { Haptics = require('expo-haptics'); } catch {}
+function triggerHaptic() {
+  try { Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch {}
+}
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'SectionMap'>;
   route: RouteProp<RootStackParamList, 'SectionMap'>;
 };
 
-
 export default function SectionMapScreen({ navigation, route }: Props) {
   const section = sectionDataMap[route.params.sectionId];
   const [, forceUpdate] = useState(0);
   const { colors } = useTheme();
 
-  useFocusEffect(useCallback(() => { forceUpdate(n => n + 1); }, []));
+  // Animated progress bar
+  const progressAnim = useRef(new Animated.Value(0)).current;
+
+  useFocusEffect(useCallback(() => {
+    forceUpdate(n => n + 1);
+    if (section) {
+      const completed = getCompletedCount(section.id, section.concepts.map(c => c.id));
+      const pct = section.concepts.length > 0 ? completed / section.concepts.length : 0;
+      progressAnim.setValue(0);
+      Animated.timing(progressAnim, {
+        toValue: pct,
+        duration: 500,
+        delay: 150,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: false,
+      }).start();
+    }
+  }, []));
 
   if (!section) {
     return (
@@ -39,6 +64,7 @@ export default function SectionMapScreen({ navigation, route }: Props) {
   }
 
   const completedCount = getCompletedCount(section.id, section.concepts.map(c => c.id));
+  const isAllComplete = completedCount === section.concepts.length;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
@@ -55,47 +81,66 @@ export default function SectionMapScreen({ navigation, route }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
+      {/* Animated progress bar */}
       <View style={styles.progressContainer}>
-        <View style={[styles.progressTrack, { backgroundColor: colors.border }]}>
-          <View
+        <View testID="progress-bar" style={[styles.progressTrack, { backgroundColor: colors.border }]}>
+          <Animated.View
             style={[
               styles.progressFill,
-              { width: `${(completedCount / section.concepts.length) * 100}%`, backgroundColor: section.color },
+              {
+                width: progressAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '100%'],
+                }),
+                backgroundColor: isAllComplete ? COLORS.green : section.color,
+              },
             ]}
           />
         </View>
-        <Text style={[styles.progressLabel, { color: colors.subtext }]}>
-          {completedCount}/{section.concepts.length} completed
-        </Text>
+        <View style={styles.progressLabelRow}>
+          <Text testID="section-map-progress" style={[styles.progressLabel, { color: colors.subtext }]}>
+            {completedCount}/{section.concepts.length} completed
+          </Text>
+          {isAllComplete && (
+            <View style={[styles.completeBadge, { backgroundColor: COLORS.greenLight }]}>
+              <Ionicons name="checkmark-circle" size={10} color={COLORS.greenDark} />
+              <Text style={[styles.completeBadgeText, { color: COLORS.greenDark }]}>All done</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {section.concepts.map((concept, index) => {
           const done = isConceptComplete(section.id, concept.id);
           const unlocked = index === 0 || isConceptComplete(section.id, section.concepts[index - 1].id);
+          const isCurrent = unlocked && !done;
 
           return (
             <TouchableOpacity
               key={concept.id}
+              testID={`concept-card-${concept.id}`}
               style={[
                 styles.conceptCard,
                 { backgroundColor: colors.card },
-                done && { borderLeftWidth: 4, borderLeftColor: COLORS.blue },
+                done && { borderLeftWidth: 4, borderLeftColor: COLORS.green },
+                isCurrent && { borderLeftWidth: 4, borderLeftColor: section.color },
                 !unlocked && styles.conceptCardLocked,
-                SHADOW_CARD_SM,
+                unlocked && SHADOW_CARD_SM,
               ]}
               onPress={() => {
                 if (unlocked) {
+                  triggerHaptic();
                   navigation.navigate('SectionQuiz', { sectionId: section.id, conceptIndex: index });
                 }
               }}
               activeOpacity={unlocked ? 0.75 : 1}
             >
-              {/* Standardised icon container */}
+              {/* Badge */}
               <View style={[
                 styles.badge,
                 done
-                  ? { backgroundColor: COLORS.blue }
+                  ? { backgroundColor: COLORS.green }
                   : unlocked
                   ? { backgroundColor: section.color }
                   : { backgroundColor: colors.borderCard },
@@ -114,12 +159,17 @@ export default function SectionMapScreen({ navigation, route }: Props) {
                   {concept.name}
                 </Text>
                 <Text style={[styles.conceptMeta, { color: colors.subtext }, !unlocked && { color: colors.border }]}>
-                  {done ? 'Completed' : `${concept.questions.length} questions`}
+                  {done ? 'Completed' : isCurrent ? `${concept.questions.length} questions · Ready` : `${concept.questions.length} questions`}
                 </Text>
               </View>
 
-              {unlocked && !done && (
-                <Ionicons name="chevron-forward" size={18} color={section.color} />
+              {isCurrent && (
+                <View style={[styles.goButton, { backgroundColor: section.color }]}>
+                  <Ionicons name="arrow-forward" size={14} color="#fff" />
+                </View>
+              )}
+              {done && !isCurrent && (
+                <Ionicons name="checkmark-circle" size={18} color={COLORS.green} />
               )}
             </TouchableOpacity>
           );
@@ -168,7 +218,21 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: { height: '100%', borderRadius: PROGRESS.borderRadius },
-  progressLabel: { fontSize: 12, fontWeight: '500', textAlign: 'right' },
+  progressLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  progressLabel: { fontSize: 12, fontWeight: '500' },
+  completeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  completeBadgeText: { fontSize: 10, fontWeight: '700' },
   scroll: { paddingHorizontal: SP.md, paddingTop: SP.xs },
   conceptCard: {
     flexDirection: 'row',
@@ -190,5 +254,8 @@ const styles = StyleSheet.create({
   conceptInfo: { flex: 1 },
   conceptName: { fontSize: 15, fontWeight: '600', marginBottom: 3 },
   conceptMeta: { fontSize: 13, fontWeight: '500' },
-  chevron: { fontSize: 24, fontWeight: '300' },
+  goButton: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

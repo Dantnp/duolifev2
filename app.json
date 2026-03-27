@@ -9,14 +9,15 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1B1F3B"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.duolife.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1B1F3B",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -24,7 +25,7 @@
       "predictiveBackGestureEnabled": false
     },
     "androidNavigationBar": {
-      "visible": "immersive"
+      "visible": "sticky-immersive"
     },
     "web": {
       "favicon": "./assets/favicon.png"
