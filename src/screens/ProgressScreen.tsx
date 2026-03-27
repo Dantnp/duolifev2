@@ -248,7 +248,7 @@ export default function ProgressScreen() {
                 {sectionsToUnlock > 0 && questionsToUnlock > 0
                   ? `${sectionsToUnlock} section + ${questionsToUnlock} questions to unlock`
                   : sectionsToUnlock > 0
-                    ? `${sectionsToUnlock} more section to unlock`
+                    ? `${sectionsToUnlock} more section${sectionsToUnlock > 1 ? 's' : ''} to unlock`
                     : `${questionsToUnlock} more questions to unlock`}
               </Text>
             </View>

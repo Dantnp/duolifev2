@@ -14,7 +14,7 @@ import { RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { RootStackParamList } from '../types';
 import { sectionDataMap as sectionData } from '../data/sectionDataMap';
-import { markConceptComplete, getXP, XP_PER_CONCEPT, recordQuestionsAnswered } from '../store/progress';
+import { markConceptComplete, getXP, XP_PER_CONCEPT, recordQuestionsAnswered, isConceptComplete, isSectionComplete } from '../store/progress';
 import { QUIZ_PASS_RATE, getAllowedWrong } from '../constants/gameConfig';
 import { sections as sectionsList } from '../data/sections';
 import {
@@ -85,6 +85,13 @@ export default function SectionQuizScreen({ navigation, route }: Props) {
   const section = sectionData[sectionId];
   const { colors, isDark } = useTheme();
   const concept = section?.concepts?.[conceptIndex];
+  const sectionIdx = sectionsList.findIndex(s => s.id === sectionId);
+  const previousSection = sectionIdx > 0 ? sectionsList[sectionIdx - 1] : null;
+  const previousSectionData = previousSection ? sectionData[previousSection.id] : null;
+  const sectionUnlocked = sectionIdx <= 0 || (previousSection && previousSectionData
+    ? isSectionComplete(previousSection.id, previousSectionData.concepts.map(c => c.id))
+    : false);
+  const conceptUnlocked = !!section && (conceptIndex === 0 || isConceptComplete(sectionId, section.concepts[conceptIndex - 1].id));
 
   // ─── State ───
   const [phase, setPhase] = useState<Phase>('lesson');
@@ -114,6 +121,21 @@ export default function SectionQuizScreen({ navigation, route }: Props) {
         <Text style={{ color: colors.text, fontSize: 16 }}>Content not found</Text>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 16 }}>
           <Text style={{ color: COLORS.blue, fontSize: 15, fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  if (!sectionUnlocked || !conceptUnlocked) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SP.lg }]}>
+        <Ionicons name="lock-closed" size={30} color={colors.mutedText} />
+        <Text style={{ color: colors.text, fontSize: 18, fontWeight: '700', marginTop: SP.md }}>Lesson locked</Text>
+        <Text style={{ color: colors.subtext, textAlign: 'center', marginTop: 8 }}>
+          Complete earlier lessons to unlock this quiz.
+        </Text>
+        <TouchableOpacity style={[btnStyles.primary, { marginTop: SP.lg }]} onPress={() => navigation.goBack()}>
+          <Text style={btnStyles.primaryText}>Back</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );

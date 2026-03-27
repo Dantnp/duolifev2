@@ -13,6 +13,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { RootStackParamList } from '../types';
 import { sectionDataMap } from '../data/sectionDataMap';
+import { sections } from '../data/sections';
 import { isConceptComplete, getCompletedCount } from '../store/progress';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -35,6 +36,12 @@ export default function SectionMapScreen({ navigation, route }: Props) {
   const section = sectionDataMap[route.params.sectionId];
   const [, forceUpdate] = useState(0);
   const { colors } = useTheme();
+  const sectionIndex = sections.findIndex(s => s.id === route.params.sectionId);
+  const prevSection = sectionIndex > 0 ? sections[sectionIndex - 1] : null;
+  const prevSectionData = prevSection ? sectionDataMap[prevSection.id] : null;
+  const isSectionUnlocked = sectionIndex <= 0 || (prevSection && prevSectionData
+    ? getCompletedCount(prevSection.id, prevSectionData.concepts.map(c => c.id)) === prevSectionData.concepts.length
+    : false);
 
   // Animated progress bar
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -58,7 +65,26 @@ export default function SectionMapScreen({ navigation, route }: Props) {
   if (!section) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backFromEmpty}>
+          <Ionicons name="arrow-back" size={20} color={colors.backIcon} />
+          <Text style={[styles.emptyBackText, { color: colors.subtext }]}>Back</Text>
+        </TouchableOpacity>
         <Text style={[styles.empty, { color: colors.subtext }]}>Coming soon!</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!isSectionUnlocked) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.screenBg, justifyContent: 'center', alignItems: 'center', paddingHorizontal: SP.lg }]}>
+        <Ionicons name="lock-closed" size={30} color={colors.mutedText} />
+        <Text style={[styles.lockedTitle, { color: colors.text }]}>Section locked</Text>
+        <Text style={[styles.lockedSub, { color: colors.subtext }]}>
+          Complete the previous section to unlock this content.
+        </Text>
+        <TouchableOpacity style={[styles.lockedButton, { backgroundColor: COLORS.blue }]} onPress={() => navigation.goBack()} activeOpacity={0.85}>
+          <Text style={styles.lockedButtonText}>Back to Learn</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
@@ -184,6 +210,12 @@ export default function SectionMapScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   empty: { textAlign: 'center', marginTop: 100, fontSize: 18 },
+  backFromEmpty: { marginTop: SP.md, marginLeft: SP.md, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  emptyBackText: { fontSize: 14, fontWeight: '500' },
+  lockedTitle: { fontSize: 20, fontWeight: '700', marginTop: SP.md },
+  lockedSub: { fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
+  lockedButton: { marginTop: SP.lg, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12 },
+  lockedButtonText: { color: '#fff', fontWeight: '700' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

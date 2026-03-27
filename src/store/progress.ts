@@ -264,6 +264,29 @@ function persist() {
   }, 300);
 }
 
+async function writeAllProgressToStorage() {
+  await Promise.all([
+    AsyncStorage.setItem(STORAGE_KEYS.completed, JSON.stringify(completed)),
+    AsyncStorage.setItem(STORAGE_KEYS.totalXP, String(totalXP)),
+    AsyncStorage.setItem(STORAGE_KEYS.questionsAnswered, String(questionsAnswered)),
+    AsyncStorage.setItem(STORAGE_KEYS.bestScores, JSON.stringify(bestScores)),
+    AsyncStorage.setItem(STORAGE_KEYS.examScores, JSON.stringify(examScores)),
+    AsyncStorage.setItem(STORAGE_KEYS.streak, JSON.stringify({ streakCount, lastActivityDate })),
+  ]);
+}
+
+export async function flushProgressToStorage(): Promise<void> {
+  if (_persistTimer) {
+    clearTimeout(_persistTimer);
+    _persistTimer = null;
+  }
+  try {
+    await writeAllProgressToStorage();
+  } catch {
+    // Best-effort flush for app background/exit.
+  }
+}
+
 // ─── Theme persistence (kept here to share the AsyncStorage setup) ───
 
 const THEME_KEY = '@duo_theme';
